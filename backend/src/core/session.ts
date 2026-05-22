@@ -63,9 +63,22 @@ export const sessionPlugin = new Elysia({ name: 'session' })
     const raw = await sessionStore.get(`session:${id}`)
     const stored: SessionData = raw ? JSON.parse(raw) : {}
 
+    let cleared = false
+
     const session: Session = {
       ...stored,
       async save() {
+        if (cleared) {
+          await sessionStore.del(`session:${id}`)
+          cookie[COOKIE_NAME]!.set({
+            value: id,
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 0,
+            path: '/',
+          })
+          return
+        }
         const { save: _s, clear: _c, ...plain } = session
         await sessionStore.set(`session:${id}`, JSON.stringify(plain), 'EX', SESSION_TTL)
         cookie[COOKIE_NAME]!.set({
@@ -77,6 +90,7 @@ export const sessionPlugin = new Elysia({ name: 'session' })
         })
       },
       clear() {
+        cleared = true
         delete session.user
         delete session.access_token
         delete session.request_token
