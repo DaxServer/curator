@@ -136,7 +136,17 @@ async function resolveSequenceIdFromImage(imageId: string): Promise<string | nul
 export async function fetchExistingPages(
   imageIds: string[],
 ): Promise<Record<string, ExistingPage[]>> {
-  const values = imageIds.map((id) => `"${id.replace(/"/g, '')}"`).join(' ')
+  const numericIds = imageIds.filter((id) => /^\d+$/.test(id))
+  if (numericIds.length < imageIds.length) {
+    mapillaryLogger.warn(
+      { skipped: imageIds.length - numericIds.length },
+      'Skipping non-numeric Mapillary IDs in SPARQL query',
+    )
+  }
+  const validIds = [...new Set(numericIds)]
+  if (validIds.length === 0) return {}
+
+  const values = validIds.map((id) => `"${id}"`).join(' ')
   const query = `SELECT ?file ?id WHERE {
   VALUES ?id { ${values} }
   ?file wdt:${WIKIDATA_PROPERTY.MapillaryPhotoID} ?id.

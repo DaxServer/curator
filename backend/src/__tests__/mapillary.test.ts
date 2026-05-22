@@ -36,7 +36,7 @@ describe('fetchExistingPages', () => {
             bindings: [
               {
                 file: { value: 'https://commons.wikimedia.org/entity/M123' },
-                id: { value: 'img1' },
+                id: { value: '111111111' },
               },
             ],
           },
@@ -44,9 +44,39 @@ describe('fetchExistingPages', () => {
         { status: 200 },
       )) as unknown as typeof fetch
 
-    const result = await fetchExistingPages(['img1'])
+    const result = await fetchExistingPages(['111111111'])
 
-    expect(result).toEqual({ img1: [{ url: 'https://commons.wikimedia.org/entity/M123' }] })
+    expect(result).toEqual({
+      '111111111': [{ url: 'https://commons.wikimedia.org/entity/M123' }],
+    })
+  })
+
+  it('skips non-numeric IDs and returns {} without fetching', async () => {
+    let fetchCalled = false
+    globalThis.fetch = (async () => {
+      fetchCalled = true
+      return new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const result = await fetchExistingPages(['img1', '} UNION { ?x ?y ?z'])
+
+    expect(fetchCalled).toBe(false)
+    expect(result).toEqual({})
+  })
+
+  it('filters non-numeric IDs and only queries valid ones', async () => {
+    let capturedBody = ''
+    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = init?.body as string
+      return new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await fetchExistingPages(['222222222', 'bad} injection', '333333333'])
+
+    const decoded = decodeURIComponent(capturedBody)
+    expect(decoded).toContain('"222222222"')
+    expect(decoded).toContain('"333333333"')
+    expect(decoded).not.toContain('bad')
   })
 
   it('follows WCQS redirect and re-sends wcqsOauth plus Set-Cookie cookies', async () => {
@@ -69,7 +99,7 @@ describe('fetchExistingPages', () => {
       return new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 })
     }) as unknown as typeof fetch
 
-    await fetchExistingPages(['img1'])
+    await fetchExistingPages(['111111111'])
 
     expect(callCount).toBe(2)
     expect(capturedCookies[1]).toContain('wcqsOauth=')
