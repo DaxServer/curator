@@ -11,7 +11,7 @@ import path from 'node:path'
 const isTest = Bun.env.NODE_ENV === 'test'
 const STATIC_DIR = Bun.env.STATIC_DIR
 
-const base = new Elysia()
+const base = new Elysia({ cookie: { httpOnly: true, sameSite: 'lax', path: '/' } })
   .use(logixlysia({ config: { pino: logger, useTransportsOnly: isTest } }))
   .use(devAuthPlugin)
   .get('/health', () => ({ status: 'ok' }))
