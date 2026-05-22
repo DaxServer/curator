@@ -40,7 +40,7 @@ export async function ensureUser(
       created_at: sql`CURRENT_TIMESTAMP`,
       updated_at: sql`CURRENT_TIMESTAMP`,
     })
-    .onDuplicateKeyUpdate({ set: { username: sql`username` } })
+    .onDuplicateKeyUpdate({ set: { username: sql`VALUES(username)` } })
   return (await db.query.users.findFirst({
     where: (u, { eq }) => eq(u.userid, userid),
   }))!
