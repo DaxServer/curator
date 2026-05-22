@@ -2,6 +2,8 @@ import { sessionPlugin, type SessionStore } from '@backend/core/session'
 import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 
+const COOKIE_CONFIG = { cookie: { httpOnly: true, sameSite: 'lax' as const, path: '/' } }
+
 function makeTestStorePlugin(store = new Map<string, string>()) {
   const sessionStore: SessionStore = {
     async get(key) {
@@ -23,7 +25,7 @@ function makeTestStorePlugin(store = new Map<string, string>()) {
 describe('session plugin', () => {
   it('injects empty session on first request', async () => {
     const { plugin } = makeTestStorePlugin()
-    const app = new Elysia()
+    const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
       .get('/test', ({ session }) => ({ user: session.user ?? null }))
@@ -35,7 +37,7 @@ describe('session plugin', () => {
 
   it('persists session data after save()', async () => {
     const { plugin } = makeTestStorePlugin()
-    const app = new Elysia()
+    const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
       .get('/write', async ({ session }) => {
@@ -60,7 +62,7 @@ describe('session plugin', () => {
 
   it('clears session data on clear()', async () => {
     const { plugin } = makeTestStorePlugin()
-    const app = new Elysia()
+    const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
       .get('/write', async ({ session }) => {
@@ -86,7 +88,7 @@ describe('session plugin', () => {
 
   it('expires cookie and deletes store entry on clear() + save()', async () => {
     const { plugin, store } = makeTestStorePlugin()
-    const app = new Elysia()
+    const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
       .get('/write', async ({ session }) => {
@@ -109,6 +111,9 @@ describe('session plugin', () => {
     )
 
     expect(store.size).toBe(0)
-    expect(clearRes.headers.get('set-cookie')).toMatch(/Max-Age=0/i)
+    const setCookie = clearRes.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/Max-Age=0/i)
+    expect(setCookie).toMatch(/Path=\//i)
+    expect(setCookie).toMatch(/HttpOnly/i)
   })
 })
