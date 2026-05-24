@@ -23,6 +23,7 @@ export const config = {
   rateLimitPeriod: Bun.env.RATE_LIMIT_DEFAULT_PERIOD ?? 60,
   geocodingApiUrl: Bun.env.GEOCODING_API_URL ?? 'https://geocoding.daxserver.com/reverse',
   geocodingConcurrencyLimit: Bun.env.GEOCODING_CONCURRENCY_LIMIT ?? 10,
+  enableMaintenance: Bun.env.ENABLE_MAINTENANCE ?? false,
   userAgent: 'Curator / Toolforge curator.toolforge.org / Wikimedia Commons User:DaxServer',
   wikimediaUrls: {
     indexUrl: 'https://commons.wikimedia.org/w/index.php',

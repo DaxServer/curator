@@ -10,12 +10,14 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false)
   const isMock = ref(false)
   const isAdmin = computed(() => user.value === 'DaxServer')
+  const maintenance = ref(false)
 
   const reset = () => {
     user.value = ''
     userid.value = ''
     isAuthorized.value = false
     isMock.value = false
+    maintenance.value = false
   }
 
   const login = () => {
@@ -39,16 +41,11 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const { data, status } = await api.auth.whoami.get()
       if (status === 200 && data) {
-        const userData = data as {
-          username: string
-          userid: string
-          authorized: boolean
-          isMock: boolean
-        }
-        user.value = userData.username
-        userid.value = userData.userid
-        isAuthorized.value = userData.authorized
-        isMock.value = userData.isMock ?? false
+        user.value = data.username
+        userid.value = data.userid
+        isAuthorized.value = data.authorized
+        isMock.value = data.isMock
+        maintenance.value = data.maintenance
       } else {
         reset()
       }
@@ -65,6 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthorized,
     isLoading,
     isMock,
+    maintenance,
     user,
     userid,
     isAdmin,

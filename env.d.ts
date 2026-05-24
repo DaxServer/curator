@@ -20,7 +20,8 @@ declare module "bun" {
     STATIC_DIR?: string
     X_USERNAME?: string
     X_API_KEY?: string
-    DEV_MOCK_AUTH?: string
+    ENABLE_MAINTENANCE?: boolean
+    DEV_MOCK_AUTH?: boolean
     DEV_MOCK_USERNAME?: string
     DEV_MOCK_SUB?: string
     TOOL_DATA_DIR?: string

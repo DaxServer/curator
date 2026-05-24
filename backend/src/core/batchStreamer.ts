@@ -1,4 +1,3 @@
-import { wsLogger } from '@backend/logger'
 import type { BatchItem as DalBatchItem } from '@backend/db/dal/batches'
 import {
   countBatches,
@@ -7,6 +6,7 @@ import {
   getBatchesMinimal,
   getLatestUpdateTime,
 } from '@backend/db/dal/batches'
+import { wsLogger } from '@backend/logger'
 import type { BatchItem, ServerMessage } from '@backend/types/ws'
 
 export const STREAM_INTERVAL_MS = 2000

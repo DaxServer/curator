@@ -7,7 +7,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun
 import { createPinia, setActivePinia } from 'pinia'
 
 describe('useDataFilters', () => {
-
   beforeAll(() => {
     GlobalRegistrator.register()
   })

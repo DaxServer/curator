@@ -22,6 +22,7 @@ onMounted(() => {
     <Toast />
     <Header />
     <DevAuthBanner v-if="isDev" />
+    <MaintenanceBanner />
 
     <template v-if="auth.isAuthenticated">
       <div
