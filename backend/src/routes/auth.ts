@@ -1,7 +1,7 @@
 import { config } from '@backend/config'
 import { createOAuthClient } from '@backend/core/oauthClient'
 import { sessionPlugin } from '@backend/core/session'
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 
 const MIN_EDITCOUNT = 50
 
@@ -58,20 +58,36 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     await session.save()
     return redirect('/', 302)
   })
-  .get('/whoami', ({ session, set }) => {
-    if (!session.user) {
-      set.status = 401
-      return { message: 'Unauthorized' }
-    }
-    return {
-      username: session.user.username,
-      userid: session.user.sub,
-      authorized: config.xUsername === session.user.username,
-      isMock:
-        Bun.env.DEV_MOCK_AUTH === 'true' &&
-        session.user.sub === (Bun.env.DEV_MOCK_SUB ?? 'dev-user-1'),
-    }
-  })
+  .get(
+    '/whoami',
+    ({ session, status }) => {
+      if (!session.user) {
+        return status(401, { message: 'Unauthorized' })
+      }
+      return {
+        username: session.user.username,
+        userid: session.user.sub,
+        authorized: config.xUsername === session.user.username,
+        isMock: !!(
+          Bun.env.DEV_MOCK_AUTH === 'true' &&
+          session.user.sub === (Bun.env.DEV_MOCK_SUB ?? 'dev-user-1')
+        ),
+        maintenance: config.enableMaintenance,
+      }
+    },
+    {
+      response: {
+        200: t.Object({
+          username: t.String(),
+          userid: t.String(),
+          authorized: t.Boolean(),
+          isMock: t.Boolean(),
+          maintenance: t.Boolean(),
+        }),
+        401: t.Object({ message: t.String() }),
+      },
+    },
+  )
   .post('/register', async ({ session, headers, set }) => {
     // Read live from env so tests can inject values via Bun.env
     const xUsername = Bun.env.X_USERNAME ?? ''
