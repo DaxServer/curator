@@ -6,7 +6,8 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
-import { clearUploadAccessToken, getUploadById, updateUploadStatus } from '@backend/db/dal/uploads'
+import { lazyDb } from '@backend/db/client'
+import { UploadService } from '@backend/db/dal/uploads'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
 import { workerLogger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
@@ -19,13 +20,15 @@ const buildEditSummary = (imageKey: string, batchId: number, editGroupId: string
   `Uploaded via Curator from Mapillary image ${imageKey} (batch ${batchId}) ([[:toolforge:editgroups-commons/b/curator/${editGroupId}|details]])`
 
 export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
+  const uploads = new UploadService(lazyDb.client)
+
   const worker = new Worker<UploadJobData>(
     'uploads',
     async (job) => {
       const { uploadId, batchId, editGroupId } = job.data
       workerLogger.info(`[worker] [${uploadId}] [${job.id}] task started`)
 
-      const upload = await getUploadById(uploadId)
+      const upload = await uploads.getUploadById(uploadId)
       if (!upload) {
         workerLogger.error({ uploadId }, 'Upload not found, skipping')
         return
@@ -34,7 +37,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
       if (upload.status === 'cancelled') return
 
       if (!upload.access_token) {
-        await updateUploadStatus(uploadId, 'failed', {
+        await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
         })
@@ -45,7 +48,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
       try {
         accessToken = decryptAccessToken(upload.access_token)
       } catch {
-        await updateUploadStatus(uploadId, 'failed', {
+        await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
         })
@@ -59,11 +62,11 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         workerLogger.warn(
           `[worker] [${uploadId}/${batchId}] title ${upload.filename} is blacklisted: ${reason}`,
         )
-        await updateUploadStatus(uploadId, 'failed', {
+        await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'title_blacklisted',
           message: reason,
         })
-        await clearUploadAccessToken(uploadId)
+        await uploads.clearUploadAccessToken(uploadId)
         return
       }
 
@@ -75,7 +78,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         throw new Error(`Image ${upload.key} not found in Mapillary — will retry`)
       }
 
-      await updateUploadStatus(uploadId, 'in_progress')
+      await uploads.updateUploadStatus(uploadId, 'in_progress')
 
       const summary = buildEditSummary(upload.key, batchId, editGroupId)
 
@@ -99,8 +102,8 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         await mw.nullEdit(upload.filename)
 
         workerLogger.info(`[worker] [${uploadId}/${batchId}] successfully uploaded to ${fileUrl}`)
-        await updateUploadStatus(uploadId, 'completed', null, fileUrl)
-        await clearUploadAccessToken(uploadId)
+        await uploads.updateUploadStatus(uploadId, 'completed', null, fileUrl)
+        await uploads.clearUploadAccessToken(uploadId)
         workerLogger.info(`[worker] [${uploadId}] [${job.id}] task completed`)
       } catch (err) {
         if (err instanceof DuplicateUploadError) {
@@ -117,27 +120,27 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
 
             try {
               await mw.applySdc(dupeFilename, claims, labelsPayload, summary)
-              await updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
+              await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
                 type: 'duplicated_sdc_updated',
                 links,
                 message: 'File already exists on Commons. SDC updated.',
               })
             } catch {
-              await updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
+              await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                 type: 'duplicated_sdc_not_updated',
                 links,
                 message: 'File already exists on Commons. SDC could not be updated.',
               })
             }
           } else {
-            await updateUploadStatus(uploadId, 'duplicate', {
+            await uploads.updateUploadStatus(uploadId, 'duplicate', {
               type: 'duplicate',
               links: [],
               message: 'File already exists on Commons.',
             })
           }
 
-          await clearUploadAccessToken(uploadId)
+          await uploads.clearUploadAccessToken(uploadId)
           return
         }
 
@@ -150,8 +153,8 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         }
 
         const message = err instanceof Error ? err.message : 'Unknown error'
-        await updateUploadStatus(uploadId, 'failed', { type: 'error', message })
-        await clearUploadAccessToken(uploadId)
+        await uploads.updateUploadStatus(uploadId, 'failed', { type: 'error', message })
+        await uploads.clearUploadAccessToken(uploadId)
       }
     },
     {

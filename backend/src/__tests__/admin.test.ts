@@ -1,8 +1,4 @@
 import { type SessionStore } from '@backend/core/session'
-import type * as batchesDal from '@backend/db/dal/batches'
-import type * as presetsDal from '@backend/db/dal/presets'
-import type * as uploadsDal from '@backend/db/dal/uploads'
-import type * as usersDal from '@backend/db/dal/users'
 import { adminRoutes } from '@backend/routes/admin'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'
@@ -47,14 +43,14 @@ function seedSessionWithToken(m: Map<string, string>): string {
   return `session_id=${id}`
 }
 
-type DalOverrides = {
+type ServiceOverrides = {
   uploads?: object
   batches?: object
   users?: object
   presets?: object
 }
 
-function makeTestApp(overrides: DalOverrides = {}) {
+function makeTestApp(overrides: ServiceOverrides = {}) {
   const { m, store } = makeStore()
 
   const mockBatches = {
@@ -86,11 +82,11 @@ function makeTestApp(overrides: DalOverrides = {}) {
   const app = new Elysia()
     .use(new Elysia({ name: 'session-store' }).decorate('sessionStore', store))
     .use(
-      new Elysia({ name: 'admin-dal' }).decorate('dal', {
-        users: { ...mockUsers, ...(overrides.users ?? {}) } as unknown as typeof usersDal,
-        batches: { ...mockBatches, ...(overrides.batches ?? {}) } as unknown as typeof batchesDal,
-        presets: { ...mockPresets, ...(overrides.presets ?? {}) } as unknown as typeof presetsDal,
-        uploads: { ...mockUploads, ...(overrides.uploads ?? {}) } as unknown as typeof uploadsDal,
+      new Elysia({ name: 'db' }).decorate({
+        users: { ...mockUsers, ...(overrides.users ?? {}) },
+        batches: { ...mockBatches, ...(overrides.batches ?? {}) },
+        presets: { ...mockPresets, ...(overrides.presets ?? {}) },
+        uploads: { ...mockUploads, ...(overrides.uploads ?? {}) },
       }),
     )
     .use(adminRoutes)

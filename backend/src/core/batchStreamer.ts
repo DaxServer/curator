@@ -1,11 +1,4 @@
-import type { BatchItem as DalBatchItem } from '@backend/db/dal/batches'
-import {
-  countBatches,
-  getBatchIdsWithRecentChanges,
-  getBatches,
-  getBatchesMinimal,
-  getLatestUpdateTime,
-} from '@backend/db/dal/batches'
+import type { BatchService, BatchItem as DalBatchItem } from '@backend/db/dal/batches'
 import { wsLogger } from '@backend/logger'
 import type { BatchItem, ServerMessage } from '@backend/types/ws'
 
@@ -24,15 +17,14 @@ export function toWsBatchItem(b: DalBatchItem): BatchItem {
 }
 
 export class OptimizedBatchStreamer {
-  private sender: WsSender
-  private username: string
   private lastUpdateTime: Date | null = null
   private interval: ReturnType<typeof setTimeout> | null = null
 
-  constructor(sender: WsSender, username: string) {
-    this.sender = sender
-    this.username = username
-  }
+  constructor(
+    private sender: WsSender,
+    private username: string,
+    private batches: BatchService,
+  ) {}
 
   async startStreaming(
     userid: string | undefined,
@@ -45,8 +37,8 @@ export class OptimizedBatchStreamer {
     )
     const offset = (page - 1) * limit
     const [items, total] = await Promise.all([
-      getBatches({ offset, limit, filterText, userid }),
-      countBatches({ filterText, userid }),
+      this.batches.getBatches({ offset, limit, filterText, userid }),
+      this.batches.countBatches({ filterText, userid }),
     ])
     this.sender.send({
       type: 'BATCHES_LIST',
@@ -54,7 +46,7 @@ export class OptimizedBatchStreamer {
       partial: false,
       nonce: nonce(),
     })
-    this.lastUpdateTime = await getLatestUpdateTime({ userid, filterText })
+    this.lastUpdateTime = await this.batches.getLatestUpdateTime({ userid, filterText })
 
     if (page > 1) {
       wsLogger.info(
@@ -65,17 +57,17 @@ export class OptimizedBatchStreamer {
 
     const poll = async () => {
       try {
-        const current = await getLatestUpdateTime({ userid, filterText })
+        const current = await this.batches.getLatestUpdateTime({ userid, filterText })
         if (current && (!this.lastUpdateTime || current > this.lastUpdateTime)) {
           const checkTime = this.lastUpdateTime ?? new Date(0)
-          const changedIds = await getBatchIdsWithRecentChanges(checkTime, {
+          const changedIds = await this.batches.getBatchIdsWithRecentChanges(checkTime, {
             userid,
             filterText,
           })
           if (changedIds.length > 0) {
-            const changed = await getBatchesMinimal(changedIds)
+            const changed = await this.batches.getBatchesMinimal(changedIds)
             if (changed.length > 0) {
-              const newTotal = await countBatches({ filterText, userid })
+              const newTotal = await this.batches.countBatches({ filterText, userid })
               wsLogger.info(
                 `[ws] [resp] Updates detected for ${this.username}, sending incremental update`,
               )
