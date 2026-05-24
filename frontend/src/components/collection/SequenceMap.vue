@@ -2,7 +2,10 @@
 import { useSequenceMap } from '@frontend/composables/useSequenceMap'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import maplibregl from 'maplibre-gl'
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-csp-worker.js?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl)
 
 const { geoJSON, pathGeoJSON } = useSequenceMap()
 const store = useCollectionsStore()
