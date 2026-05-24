@@ -61,6 +61,8 @@ declare module 'vue' {
     InputNumber: typeof import('primevue/inputnumber')['default']
     InputText: typeof import('primevue/inputtext')['default']
     ItemInputs: typeof import('./src/components/edit/ItemInputs.vue')['default']
+    MaintenanceBanner: typeof import('./src/components/MaintenanceBanner.vue')['default']
+    MaintenanceView: typeof import('./src/components/views/MaintenanceView.vue')['default']
     MapillaryCollections: typeof import('./src/components/mapillary/MapillaryCollections.vue')['default']
     MediaSkeleton: typeof import('./src/components/feedback/MediaSkeleton.vue')['default']
     Message: typeof import('primevue/message')['default']
