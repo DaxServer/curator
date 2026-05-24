@@ -69,7 +69,8 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
         userid: session.user.sub,
         authorized: config.xUsername === session.user.username,
         isMock: !!(
-          Bun.env.DEV_MOCK_AUTH && session.user.sub === (Bun.env.DEV_MOCK_SUB ?? 'dev-user-1')
+          Bun.env.DEV_MOCK_AUTH === 'true' &&
+          session.user.sub === (Bun.env.DEV_MOCK_SUB ?? 'dev-user-1')
         ),
         maintenance: config.enableMaintenance,
       }
