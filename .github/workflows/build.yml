@@ -27,6 +27,7 @@ jobs:
           bun-version: ${{ steps.bun-version.outputs.BUN_VERSION }}
 
       - run: bun install --frozen-lockfile
+      - run: bun --filter @curator/frontend build
       - run: bun run build
 
       - name: Create GitHub Release

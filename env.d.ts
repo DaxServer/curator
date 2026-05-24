@@ -17,7 +17,6 @@ declare module "bun" {
     RATE_LIMIT_DEFAULT_PERIOD?: number
     GEOCODING_API_URL?: string
     GEOCODING_CONCURRENCY_LIMIT?: number
-    STATIC_DIR?: string
     X_USERNAME?: string
     X_API_KEY?: string
     ENABLE_MAINTENANCE?: string

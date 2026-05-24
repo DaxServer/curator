@@ -1,15 +1,14 @@
 import { devAuthPlugin } from '@backend/core/devAuth'
+import { embeddedFiles } from '@backend/embedded-frontend'
 import { logger } from '@backend/logger'
 import { adminRoutes } from '@backend/routes/admin'
 import { authRoutes } from '@backend/routes/auth'
 import { wsRoutes } from '@backend/routes/ws'
-import { staticPlugin } from '@elysiajs/static'
 import { Elysia } from 'elysia'
 import logixlysia from 'logixlysia'
-import path from 'node:path'
 
 const isTest = Bun.env.NODE_ENV === 'test'
-const STATIC_DIR = Bun.env.STATIC_DIR
+const indexHtml = embeddedFiles['/index.html']
 
 const base = new Elysia({ cookie: { httpOnly: true, sameSite: 'lax', path: '/' } })
   .use(logixlysia({ config: { pino: logger, useTransportsOnly: isTest } }))
@@ -21,8 +20,12 @@ const base = new Elysia({ cookie: { httpOnly: true, sameSite: 'lax', path: '/' }
 
 export type App = typeof base
 
-export const app = STATIC_DIR
-  ? base
-      .use(staticPlugin({ assets: STATIC_DIR, prefix: '/' }))
-      .get('/*', () => Bun.file(path.join(STATIC_DIR, 'index.html')))
-  : base
+export const app =
+  indexHtml !== undefined
+    ? base
+        .get('/', () => Bun.file(indexHtml))
+        .get('/*', ({ request }) => {
+          const { pathname } = new URL(request.url)
+          return Bun.file(embeddedFiles[pathname] ?? indexHtml)
+        })
+    : base
