@@ -4,8 +4,6 @@ import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { drizzle } from 'drizzle-orm/mysql2'
 import mysql from 'mysql2/promise'
 
-let _db: MySql2Database<typeof schema> | undefined
-
 function parseDbUrl(url: string) {
   const u = new URL(url)
   return {
@@ -17,23 +15,15 @@ function parseDbUrl(url: string) {
   }
 }
 
-function getDb(): MySql2Database<typeof schema> {
-  if (!_db) {
-    const pool = mysql.createPool({
-      ...parseDbUrl(config.dbUrl),
-      waitForConnections: true,
-      connectionLimit: 10,
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 10000,
-    })
-    _db = drizzle(pool, { schema, mode: 'default' })
+export class LazyDb {
+  private _db: MySql2Database<typeof schema> | undefined
+
+  get client(): MySql2Database<typeof schema> {
+    this._db ??= drizzle(mysql.createPool(parseDbUrl(config.dbUrl)), { schema, mode: 'default' })
+    return this._db
   }
-  return _db
 }
 
-export const db = new Proxy({} as MySql2Database<typeof schema>, {
-  get(_target, prop, receiver) {
-    return Reflect.get(getDb(), prop, receiver)
-  },
-})
+export const lazyDb = new LazyDb()
+
 export type DB = MySql2Database<typeof schema>

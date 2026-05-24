@@ -1,6 +1,7 @@
 import { config } from '@backend/config'
 import { Handler } from '@backend/core/handler'
 import { sessionPlugin } from '@backend/core/session'
+import { dbPlugin } from '@backend/db/plugin'
 import { wsLogger } from '@backend/logger'
 import { ClientMessage, ServerMessage } from '@backend/types/ws'
 import Elysia, { ValidationError } from 'elysia'
@@ -22,6 +23,7 @@ const connections = new Map<string, Handler>()
 export const wsRoutes = new Elysia({ name: 'ws-routes' })
   .use(sessionPlugin)
   .use(redisPlugin)
+  .use(dbPlugin)
   .onError(({ error }) => {
     if (error instanceof ValidationError) {
       wsLogger.error({ errors: error.all, message: error.message }, 'WebSocket validation error')
@@ -44,7 +46,13 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
         access_token: ws.data.session.access_token,
       }
       const sender = { send: (msg: ServerMessage) => ws.send(msg) }
-      const handler = new Handler(user, sender, ws.data.redis.client)
+      const { batches, uploads, presets, users } = ws.data
+      const handler = new Handler(user, sender, ws.data.redis.client, {
+        batches,
+        uploads,
+        presets,
+        users,
+      })
       connections.set(ws.id, handler)
       wsLogger.info(`User ${user.username} connected`)
     },

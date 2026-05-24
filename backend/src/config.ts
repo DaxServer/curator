@@ -16,7 +16,10 @@ export const config = {
   wcqsOauthToken: Bun.env.WCQS_OAUTH_TOKEN ?? 'WCQS_OAUTH_TOKEN',
   mapillaryApiToken: Bun.env.MAPILLARY_API_TOKEN,
   redisUrl,
-  dbUrl: Bun.env.DB_URL ?? 'mysql://curator:curator@localhost/curator',
+  dbUrl:
+    Bun.env.TOOL_TOOLSDB_USER && Bun.env.TOOL_TOOLSDB_PASSWORD
+      ? `mysql://${Bun.env.TOOL_TOOLSDB_USER}:${Bun.env.TOOL_TOOLSDB_PASSWORD}@tools.db.svc.wikimedia.cloud/${Bun.env.TOOL_TOOLSDB_USER}__curator`
+      : (Bun.env.DB_URL ?? 'mysql://curator:curator@localhost/curator'),
   workerConcurrency: Bun.env.CELERY_CONCURRENCY ?? 2,
   workerMaxWaitTime: Bun.env.CELERY_MAXIMUM_WAIT_TIME ?? 240,
   rateLimitNormal: Bun.env.RATE_LIMIT_DEFAULT_NORMAL ?? 4,

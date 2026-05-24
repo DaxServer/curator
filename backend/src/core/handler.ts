@@ -4,22 +4,10 @@ import { OptimizedBatchStreamer, STREAM_INTERVAL_MS, nonce } from '@backend/core
 import { encryptAccessToken } from '@backend/core/crypto'
 import { getNextUploadDelay, getRateLimitForBatch } from '@backend/core/rateLimiter'
 import type { SessionUser } from '@backend/core/session'
-import { countUploadsInBatch, createBatch, getBatch } from '@backend/db/dal/batches'
-import {
-  createPreset,
-  deletePreset as deletePresetDal,
-  getPresetsForHandler,
-  updatePreset,
-} from '@backend/db/dal/presets'
-import type { UploadRow } from '@backend/db/dal/uploads'
-import {
-  cancelBatch as cancelBatchDal,
-  createUploadRequestsForBatch,
-  getUploadsByBatch,
-  retrySelectedUploadsToNewBatch,
-  updateJobTaskId,
-} from '@backend/db/dal/uploads'
-import { ensureUser } from '@backend/db/dal/users'
+import type { BatchService } from '@backend/db/dal/batches'
+import type { PresetService } from '@backend/db/dal/presets'
+import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
+import type { UserService } from '@backend/db/dal/users'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
 import { mapillaryLogger, wsLogger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
@@ -46,6 +34,13 @@ const BATCH_RETRIEVAL_CHUNK_SIZE = 100
 
 type SessionUserWithAuth = SessionUser & {
   access_token: [string, string]
+}
+
+export type Services = {
+  batches: BatchService
+  uploads: UploadService
+  presets: PresetService
+  users: UserService
 }
 
 function presetRowToItem(p: {
@@ -94,17 +89,19 @@ export class Handler {
   private userid: string
   private sender: WsSender
   private redis: Redis
+  private services: Services
   private uploadsInterval: ReturnType<typeof setTimeout> | null = null
   private batchesListInterval: ReturnType<typeof setInterval> | null = null
   private batchStreamer: OptimizedBatchStreamer
 
-  constructor(user: SessionUserWithAuth, sender: WsSender, redis: Redis) {
+  constructor(user: SessionUserWithAuth, sender: WsSender, redis: Redis, services: Services) {
     this.user = user
     this.username = user.username
     this.userid = user.sub
     this.sender = sender
     this.redis = redis
-    this.batchStreamer = new OptimizedBatchStreamer(sender, this.username)
+    this.services = services
+    this.batchStreamer = new OptimizedBatchStreamer(sender, this.username, services.batches)
   }
 
   cancelTasks(): void {
@@ -140,19 +137,23 @@ export class Handler {
   }): Promise<void> {
     await this.safe('fetchBatches', async () => {
       this.batchStreamer.stopStreaming()
-      this.batchStreamer = new OptimizedBatchStreamer(this.sender, this.username)
+      this.batchStreamer = new OptimizedBatchStreamer(
+        this.sender,
+        this.username,
+        this.services.batches,
+      )
       await this.batchStreamer.startStreaming(data.userid, data.filter, data.page, data.limit)
     })
   }
 
   async fetchBatchUploads(batchid: number): Promise<void> {
     await this.safe('fetchBatchUploads', async () => {
-      const batch = await getBatch(batchid)
+      const batch = await this.services.batches.getBatch(batchid)
       if (!batch) {
         this.sendError(`Batch ${batchid} not found`)
         return
       }
-      const uploads = await getUploadsByBatch(batchid)
+      const uploads = await this.services.uploads.getUploadsByBatch(batchid)
       wsLogger.info(
         `[ws] [resp] Sending batch ${batchid} and ${uploads.length} uploads for ${this.username}`,
       )
@@ -185,9 +186,7 @@ export class Handler {
   async retryUploads(batchid: number): Promise<void> {
     await this.safe('retryUploads', async () => {
       const encryptedAccessToken = encryptAccessToken(this.user.access_token)
-      // retrySelectedUploadsToNewBatch in TS DAL expects upload ids list; port from
-      // python reset_failed_uploads_to_new_batch — look up failed uploads first.
-      const all = await getUploadsByBatch(batchid)
+      const all = await this.services.uploads.getUploadsByBatch(batchid)
       const failedIds = all.filter((u) => u.status === 'failed').map((u) => u.id)
       if (failedIds.length === 0) {
         wsLogger.info(
@@ -196,12 +195,13 @@ export class Handler {
         this.sendError('No failed uploads to retry')
         return
       }
-      const { newUploadIds, editGroupId, newBatchId } = await retrySelectedUploadsToNewBatch(
-        failedIds,
-        encryptedAccessToken,
-        this.userid,
-        this.username,
-      )
+      const { newUploadIds, editGroupId, newBatchId } =
+        await this.services.uploads.retrySelectedUploadsToNewBatch(
+          failedIds,
+          encryptedAccessToken,
+          this.userid,
+          this.username,
+        )
       if (newUploadIds.length === 0 || !editGroupId) {
         wsLogger.info(
           `[ws] [resp] No failed uploads to retry for batch ${batchid} for ${this.username}`,
@@ -217,7 +217,7 @@ export class Handler {
           { uploadId, batchId: newBatchId, editGroupId, userid: this.userid },
           delayMs,
         )
-        await updateJobTaskId(uploadId, jobId)
+        await this.services.uploads.updateJobTaskId(uploadId, jobId)
       }
       wsLogger.info(
         `[ws] [resp] Retried ${newUploadIds.length} uploads for batch ${batchid} for ${this.username}`,
@@ -236,7 +236,7 @@ export class Handler {
       const userid = isAdmin ? undefined : this.userid
       let cancelled: Map<number, string | null>
       try {
-        cancelled = await cancelBatchDal(batchid, userid)
+        cancelled = await this.services.uploads.cancelBatch(batchid, userid)
       } catch (e) {
         const msg = (e as Error).message
         if (msg.includes('not found')) {
@@ -287,7 +287,11 @@ export class Handler {
   async subscribeBatchesList(data: { userid?: string; filter?: string }): Promise<void> {
     await this.safe('subscribeBatchesList', async () => {
       this.batchStreamer.stopStreaming()
-      this.batchStreamer = new OptimizedBatchStreamer(this.sender, this.username)
+      this.batchStreamer = new OptimizedBatchStreamer(
+        this.sender,
+        this.username,
+        this.services.batches,
+      )
       await this.batchStreamer.startStreaming(data.userid, data.filter, 1, 100)
     })
   }
@@ -299,8 +303,8 @@ export class Handler {
 
   async createBatch(): Promise<void> {
     await this.safe('createBatch', async () => {
-      await ensureUser(this.userid, this.username)
-      const batch = await createBatch(this.userid, this.username)
+      await this.services.users.ensureUser(this.userid, this.username)
+      const batch = await this.services.batches.createBatch(this.userid, this.username)
       wsLogger.info(`[ws] [resp] Batch ${batch.id} created for ${this.username}`)
       this.sender.send({ type: 'BATCH_CREATED', data: batch.id, nonce: nonce() })
     })
@@ -308,14 +312,12 @@ export class Handler {
 
   async deletePreset(presetId: number): Promise<void> {
     await this.safe('deletePreset', async () => {
-      // Find handler for the preset by looking up presets across both handlers
-      const ok = await deletePresetDal(presetId, this.userid)
+      const ok = await this.services.presets.deletePreset(presetId, this.userid)
       if (!ok) {
         this.sendError('Preset not found or permission denied')
         return
       }
       wsLogger.info(`[ws] [resp] Deleted preset ${presetId} for ${this.username}`)
-      // Return refreshed list (mapillary is the only handler)
       await this.fetchPresets('mapillary')
     })
   }
@@ -349,7 +351,6 @@ export class Handler {
         })
       } catch (e) {
         const msg = (e as Error).message
-        // Switch to batch retrieval on timeout / 500
         if (msg.includes('timeout') || msg.includes('500') || msg.includes('aborted')) {
           await this.fetchImagesInBatches(collection, handler)
           return
@@ -405,7 +406,7 @@ export class Handler {
 
   async fetchPresets(handlerType: 'mapillary'): Promise<void> {
     await this.safe('fetchPresets', async () => {
-      const rows = await getPresetsForHandler(this.userid, handlerType)
+      const rows = await this.services.presets.getPresetsForHandler(this.userid, handlerType)
       wsLogger.info(
         `[ws] [resp] Sending ${rows.length} presets for ${this.username} handler=${handlerType}`,
       )
@@ -432,7 +433,7 @@ export class Handler {
   }): Promise<void> {
     await this.safe('savePreset', async () => {
       if (data.preset_id) {
-        const updated = await updatePreset(data.preset_id, this.userid, {
+        const updated = await this.services.presets.updatePreset(data.preset_id, this.userid, {
           title: data.title,
           title_template: data.title_template,
           labels: data.labels,
@@ -445,7 +446,7 @@ export class Handler {
           return
         }
       } else {
-        await createPreset({
+        await this.services.presets.createPreset({
           userid: this.userid,
           handler: data.handler,
           title: data.title,
@@ -470,7 +471,7 @@ export class Handler {
       wsLogger.info(
         `[ws] Creating upload slice ${data.sliceid} with ${data.items.length} items for ${this.username} in batch ${data.batchid}`,
       )
-      const batch = await getBatch(data.batchid)
+      const batch = await this.services.batches.getBatch(data.batchid)
       if (!batch) {
         this.sendError(`Batch ${data.batchid} not found`)
         return
@@ -481,7 +482,7 @@ export class Handler {
       }
       const encryptedAccessToken = encryptAccessToken(this.user.access_token)
       const handlerName = data.handler ?? 'mapillary'
-      const created = await createUploadRequestsForBatch({
+      const created = await this.services.uploads.createUploadRequestsForBatch({
         userid: this.userid,
         username: this.username,
         batchid: data.batchid,
@@ -503,7 +504,7 @@ export class Handler {
             },
             delayMs,
           )
-          await updateJobTaskId(c.id, jobId)
+          await this.services.uploads.updateJobTaskId(c.id, jobId)
         }
       }
       wsLogger.info(
@@ -589,7 +590,7 @@ export class Handler {
     let lastSerialized: string | null = null
     const poll = async () => {
       try {
-        const items = await getUploadsByBatch(batchid)
+        const items = await this.services.uploads.getUploadsByBatch(batchid)
         const updateItems = items.map(toUploadUpdateItem)
         const serialized = JSON.stringify(updateItems)
         if (serialized !== lastSerialized) {
@@ -600,7 +601,7 @@ export class Handler {
           })
           lastSerialized = serialized
         }
-        const total = await countUploadsInBatch(batchid)
+        const total = await this.services.batches.countUploadsInBatch(batchid)
         const completed = items.filter((i) => UPLOAD_DONE_STATUSES.has(i.status)).length
         if (total > 0 && completed >= total) {
           this.sender.send({

@@ -1,14 +1,16 @@
-import type { BatchItem } from '@backend/db/dal/batches'
-import type { UploadRow } from '@backend/db/dal/uploads'
+import type { BatchItem, BatchService } from '@backend/db/dal/batches'
+import type { PresetService } from '@backend/db/dal/presets'
+import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
+import type { UserService } from '@backend/db/dal/users'
 import { fetchExistingPages, fromMapillary } from '@backend/handlers/mapillary'
 import type { ServerMessage } from '@backend/types/ws'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 // mock.module() in Bun is global and persistent for the entire test process —
 // it mutates live ES module bindings and cannot be restored between files.
-// DAL/queue/rateLimiter mocks below are safe because no other test file imports
-// those modules directly. MediaWikiClient is NOT mocked here; handler tests that
-// need it use globalThis.fetch per-test to control the real client's HTTP calls.
+// Queue/rateLimiter/mediawiki mocks below are safe because no other test file imports
+// those modules directly. Services are injected via constructor, so DAL modules
+// are not mocked here — fake service objects are passed instead.
 
 // ============================================================
 // Shared mock state — updated per-test via .mockImplementation
@@ -40,6 +42,7 @@ const mockGetBatchIdsWithRecentChanges = mock(async () => [] as number[])
 const mockGetBatchesMinimal = mock(async () => [])
 const mockGetLatestUpdateTime = mock(async () => null as Date | null)
 const mockCountUploadsInBatch = mock(async () => 0)
+const mockPopulateBatchStats = mock(async () => new Map())
 
 const mockGetUploadsByBatch = mock(async (_id: number) => [] as unknown[])
 const mockRetrySelectedUploadsToNewBatch = mock(async () => ({
@@ -78,38 +81,8 @@ const mockFetchImagesBatch = mock(
 )
 
 // ============================================================
-// Wire up module mocks BEFORE any import of handler.ts
+// Wire up non-DAL module mocks BEFORE any import of handler.ts
 // ============================================================
-
-mock.module('@backend/db/dal/batches', () => ({
-  getBatches: mockGetBatches,
-  countBatches: mockCountBatches,
-  getBatch: mockGetBatch,
-  createBatch: mockCreateBatch,
-  getBatchIdsWithRecentChanges: mockGetBatchIdsWithRecentChanges,
-  getBatchesMinimal: mockGetBatchesMinimal,
-  getLatestUpdateTime: mockGetLatestUpdateTime,
-  countUploadsInBatch: mockCountUploadsInBatch,
-}))
-
-mock.module('@backend/db/dal/uploads', () => ({
-  getUploadsByBatch: mockGetUploadsByBatch,
-  retrySelectedUploadsToNewBatch: mockRetrySelectedUploadsToNewBatch,
-  createUploadRequestsForBatch: mockCreateUploadRequestsForBatch,
-  cancelBatch: mockCancelBatchDal,
-  updateJobTaskId: mockUpdateJobTaskId,
-}))
-
-mock.module('@backend/db/dal/users', () => ({
-  ensureUser: mockEnsureUser,
-}))
-
-mock.module('@backend/db/dal/presets', () => ({
-  getPresetsForHandler: mockGetPresetsForHandler,
-  createPreset: mockCreatePreset,
-  updatePreset: mockUpdatePreset,
-  deletePreset: mockDeletePreset,
-}))
 
 mock.module('@backend/workers/queue', () => ({
   enqueueUpload: mockEnqueueUpload,
@@ -157,6 +130,41 @@ mock.module('@backend/handlers/mapillary', () => ({
 const { Handler } = await import('@backend/core/handler')
 
 // ============================================================
+// Fake service objects — injected into Handler via constructor
+// ============================================================
+
+const fakeBatchService = {
+  getBatches: mockGetBatches,
+  countBatches: mockCountBatches,
+  getBatch: mockGetBatch,
+  createBatch: mockCreateBatch,
+  getBatchIdsWithRecentChanges: mockGetBatchIdsWithRecentChanges,
+  getBatchesMinimal: mockGetBatchesMinimal,
+  getLatestUpdateTime: mockGetLatestUpdateTime,
+  countUploadsInBatch: mockCountUploadsInBatch,
+  populateBatchStats: mockPopulateBatchStats,
+} as unknown as BatchService
+
+const fakeUploadService = {
+  getUploadsByBatch: mockGetUploadsByBatch,
+  retrySelectedUploadsToNewBatch: mockRetrySelectedUploadsToNewBatch,
+  createUploadRequestsForBatch: mockCreateUploadRequestsForBatch,
+  cancelBatch: mockCancelBatchDal,
+  updateJobTaskId: mockUpdateJobTaskId,
+} as unknown as UploadService
+
+const fakePresetService = {
+  getPresetsForHandler: mockGetPresetsForHandler,
+  createPreset: mockCreatePreset,
+  updatePreset: mockUpdatePreset,
+  deletePreset: mockDeletePreset,
+} as unknown as PresetService
+
+const fakeUserService = {
+  ensureUser: mockEnsureUser,
+} as unknown as UserService
+
+// ============================================================
 // Test helpers
 // ============================================================
 
@@ -189,7 +197,12 @@ const fakeUser = {
 
 function makeHandler(sender = makeSender(), redis = makeRedis()) {
   return {
-    handler: new Handler(fakeUser, sender, redis as unknown as import('ioredis').Redis),
+    handler: new Handler(fakeUser, sender, redis as unknown as import('ioredis').Redis, {
+      batches: fakeBatchService,
+      uploads: fakeUploadService,
+      presets: fakePresetService,
+      users: fakeUserService,
+    }),
     sender,
     redis,
   }
@@ -285,6 +298,7 @@ beforeEach(() => {
     mockGetBatchesMinimal,
     mockGetLatestUpdateTime,
     mockCountUploadsInBatch,
+    mockPopulateBatchStats,
     mockGetUploadsByBatch,
     mockRetrySelectedUploadsToNewBatch,
     mockCreateUploadRequestsForBatch,
@@ -384,7 +398,6 @@ describe('Handler.savePreset (create)', () => {
 describe('Handler.savePreset (update, not found)', () => {
   it('sends ERROR when preset is not found or permission denied', async () => {
     const { handler, sender } = makeHandler()
-    // updatePreset returns null → not found
     mockUpdatePreset.mockImplementation(async () => null)
 
     await handler.savePreset({
@@ -407,7 +420,7 @@ describe('Handler.savePreset (update, not found)', () => {
 })
 
 describe('Handler.deletePreset (found)', () => {
-  it('calls deletePreset DAL and refreshes presets list', async () => {
+  it('calls deletePreset and refreshes presets list', async () => {
     const { handler, sender } = makeHandler()
     mockDeletePreset.mockImplementation(async () => true)
     mockGetPresetsForHandler.mockImplementation(async () => [fakePresetRow()])
@@ -541,7 +554,6 @@ describe('Handler.cancelBatch (success)', () => {
     await handler.cancelBatch(1)
 
     expect(mockRemoveUploadJob).toHaveBeenCalledWith('task-abc')
-    // removeUploadJob should NOT be called for null task ids
     expect(mockRemoveUploadJob).toHaveBeenCalledTimes(1)
     const errMsg = sender.messages.find((m) => m.type === 'ERROR')
     expect(errMsg).toBeUndefined()
@@ -571,7 +583,6 @@ describe('Handler.cancelBatch (not found)', () => {
 describe('Handler.cancelBatch (no queued items)', () => {
   it('sends ERROR when there are no queued items to cancel', async () => {
     const { handler, sender } = makeHandler()
-    // Empty map means no queued uploads were cancelled
     mockCancelBatchDal.mockImplementation(async () => new Map<number, string | null>())
 
     await handler.cancelBatch(1)
@@ -590,7 +601,6 @@ describe('Handler.cancelBatch (no queued items)', () => {
 describe('Handler.checkCategoriesDeleted (some deleted)', () => {
   it('sends CATEGORIES_DELETED_RESPONSE with deleted titles', async () => {
     const { handler, sender } = makeHandler()
-    // Return logevents for Cat:A (deleted), empty for Cat:B
     const responses = [{ query: { logevents: [{ type: 'delete' }] } }, { query: { logevents: [] } }]
     let call = 0
     globalThis.fetch = mock(
@@ -637,16 +647,13 @@ describe('Handler.cancelTasks', () => {
 
   it('clears upload polling interval set by subscribeBatch', async () => {
     const { handler, sender } = makeHandler()
-    // subscribeBatch sets uploadsInterval
     mockGetUploadsByBatch.mockImplementation(async () => [])
     mockCountUploadsInBatch.mockImplementation(async () => 0)
     await handler.subscribeBatch(1)
 
-    // Verify SUBSCRIBED was sent
     const subMsg = sender.messages.find((m) => m.type === 'SUBSCRIBED')
     expect(subMsg).toBeDefined()
 
-    // cancelTasks should not throw even with active interval
     expect(() => handler.cancelTasks()).not.toThrow()
   })
 })

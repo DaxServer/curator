@@ -1,25 +1,8 @@
 import { config } from '@backend/config'
 import { encryptAccessToken } from '@backend/core/crypto'
 import { sessionPlugin } from '@backend/core/session'
-import * as batchesDal from '@backend/db/dal/batches'
-import * as presetsDal from '@backend/db/dal/presets'
-import * as uploadsDal from '@backend/db/dal/uploads'
-import * as usersDal from '@backend/db/dal/users'
+import { dbPlugin } from '@backend/db/plugin'
 import Elysia, { t } from 'elysia'
-
-type AdminDal = {
-  users: typeof usersDal
-  batches: typeof batchesDal
-  presets: typeof presetsDal
-  uploads: typeof uploadsDal
-}
-
-export const dalPlugin = new Elysia({ name: 'admin-dal' }).decorate('dal', {
-  users: usersDal,
-  batches: batchesDal,
-  presets: presetsDal,
-  uploads: uploadsDal,
-} as AdminDal)
 
 const requireAdmin = new Elysia({ name: 'require-admin' })
   .use(sessionPlugin)
@@ -40,20 +23,16 @@ const requireAdmin = new Elysia({ name: 'require-admin' })
   })
 
 export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admin' })
-  .use(dalPlugin)
+  .use(dbPlugin)
   .use(requireAdmin)
 
   .get(
     '/batches',
-    async ({ dal, query }) => {
+    async ({ batches, query }) => {
       const offset = ((query.page ?? 1) - 1) * (query.limit ?? 100)
       const [items, total] = await Promise.all([
-        dal.batches.getBatches({
-          offset,
-          limit: query.limit ?? 100,
-          filterText: query.filter_text,
-        }),
-        dal.batches.countBatches({ filterText: query.filter_text }),
+        batches.getBatches({ offset, limit: query.limit ?? 100, filterText: query.filter_text }),
+        batches.countBatches({ filterText: query.filter_text }),
       ])
       return { items, total }
     },
@@ -68,11 +47,11 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .get(
     '/users',
-    async ({ dal, query }) => {
+    async ({ users, query }) => {
       const offset = ((query.page ?? 1) - 1) * (query.limit ?? 100)
       const [items, total] = await Promise.all([
-        dal.users.getUsers({ offset, limit: query.limit ?? 100, filterText: query.filter_text }),
-        dal.users.countUsers({ filterText: query.filter_text }),
+        users.getUsers({ offset, limit: query.limit ?? 100, filterText: query.filter_text }),
+        users.countUsers({ filterText: query.filter_text }),
       ])
       return { items, total }
     },
@@ -87,7 +66,7 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .get(
     '/upload_requests',
-    async ({ dal, query }) => {
+    async ({ uploads, query }) => {
       const offset = ((query.page ?? 1) - 1) * (query.limit ?? 100)
       const statuses = query.status
         ? Array.isArray(query.status)
@@ -97,7 +76,7 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
       const dateFrom = query.date_from ? new Date(query.date_from) : undefined
       const dateTo = query.date_to ? new Date(query.date_to) : undefined
       const [items, total] = await Promise.all([
-        dal.uploads.getAllUploadRequests({
+        uploads.getAllUploadRequests({
           offset,
           limit: query.limit ?? 100,
           filterText: query.filter_text,
@@ -105,7 +84,7 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
           dateFrom,
           dateTo,
         }),
-        dal.uploads.countAllUploadRequests({
+        uploads.countAllUploadRequests({
           filterText: query.filter_text,
           statuses,
           dateFrom,
@@ -128,8 +107,8 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .post(
     '/upload_requests/bulk-cancel',
-    async ({ dal, body }) => {
-      const cancelled_count = await dal.uploads.cancelUploadRequests(body.ids)
+    async ({ uploads, body }) => {
+      const cancelled_count = await uploads.cancelUploadRequests(body.ids)
       return { cancelled_count }
     },
     { body: t.Object({ ids: t.Array(t.Number()) }) },
@@ -137,8 +116,8 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .post(
     '/upload_requests/bulk-fail',
-    async ({ dal, body }) => {
-      const failed_count = await dal.uploads.failUploadRequests(body.ids)
+    async ({ uploads, body }) => {
+      const failed_count = await uploads.failUploadRequests(body.ids)
       return { failed_count }
     },
     { body: t.Object({ ids: t.Array(t.Number()) }) },
@@ -146,15 +125,11 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .get(
     '/presets',
-    async ({ dal, query }) => {
+    async ({ presets, query }) => {
       const offset = ((query.page ?? 1) - 1) * (query.limit ?? 100)
       const [items, total] = await Promise.all([
-        dal.presets.getAllPresets({
-          offset,
-          limit: query.limit ?? 100,
-          filterText: query.filter_text,
-        }),
-        dal.presets.countAllPresets({ filterText: query.filter_text }),
+        presets.getAllPresets({ offset, limit: query.limit ?? 100, filterText: query.filter_text }),
+        presets.countAllPresets({ filterText: query.filter_text }),
       ])
       return { items, total }
     },
@@ -169,9 +144,9 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .get(
     '/failed_uploads',
-    async ({ dal, query }) => {
+    async ({ uploads, query }) => {
       const offset = ((query.page ?? 1) - 1) * (query.limit ?? 50)
-      return dal.uploads.getFailedUploadsGrouped({
+      return uploads.getFailedUploadsGrouped({
         offset,
         limit: query.limit ?? 50,
         sortBy: query.sort_by as 'recent' | 'batchSize' | 'errorType' | 'user' | undefined,
@@ -194,8 +169,8 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .put(
     '/upload_requests/:id',
-    async ({ dal, params, body, set }) => {
-      const ok = await dal.uploads.updateUploadFields(Number(params.id), body)
+    async ({ uploads, params, body, set }) => {
+      const ok = await uploads.updateUploadFields(Number(params.id), body)
       if (!ok) {
         set.status = 404
         return { message: 'Not found' }
@@ -212,14 +187,14 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .post(
     '/retry',
-    async ({ dal, body, session, set }) => {
+    async ({ uploads, body, session, set }) => {
       const tokenPair = session.access_token
       if (!tokenPair) {
         set.status = 401
         return { message: 'No access token in session' }
       }
       const encryptedToken = encryptAccessToken(tokenPair)
-      const { newUploadIds, newBatchId } = await dal.uploads.retrySelectedUploadsToNewBatch(
+      const { newUploadIds, newBatchId } = await uploads.retrySelectedUploadsToNewBatch(
         body.upload_ids,
         encryptedToken,
         session.user!.sub,
