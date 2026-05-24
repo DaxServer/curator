@@ -105,5 +105,16 @@ export default defineConfig((): import('vite').UserConfig => {
     resolve: {
       tsconfigPaths: true,
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            if (id.includes('maplibre-gl') || id.includes('@maplibre/')) {
+              return 'maplibre-gl'
+            }
+          },
+        },
+      },
+    },
   }
 })
