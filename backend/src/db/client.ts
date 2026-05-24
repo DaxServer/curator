@@ -13,7 +13,7 @@ function parseDbUrl(url: string) {
     port: u.port ? Number(u.port) : 3306,
     user: decodeURIComponent(u.username),
     password: decodeURIComponent(u.password),
-    database: u.pathname.slice(1),
+    database: decodeURIComponent(u.pathname.slice(1)),
   }
 }
 
