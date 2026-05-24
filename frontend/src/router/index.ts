@@ -50,8 +50,11 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  if (!auth.isChecked) {
+    await auth.checkAuth()
+  }
   if (auth.maintenance && !auth.isAdmin && to.name !== 'maintenance') {
     return { name: 'maintenance' }
   }

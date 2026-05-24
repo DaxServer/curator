@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!user.value)
   const isAuthorized = ref(false)
   const isLoading = ref(false)
+  const isChecked = ref(false)
   const isMock = ref(false)
   const isAdmin = computed(() => user.value === 'DaxServer')
   const maintenance = ref(false)
@@ -54,12 +55,14 @@ export const useAuthStore = defineStore('auth', () => {
       reset()
     } finally {
       isLoading.value = false
+      isChecked.value = true
     }
   }
 
   return {
     isAuthenticated,
     isAuthorized,
+    isChecked,
     isLoading,
     isMock,
     maintenance,
