@@ -1,10 +1,11 @@
 import pino from 'pino'
 
 const isTest = Bun.env.NODE_ENV === 'test'
+const usePretty = !isTest && (Bun.env.LOG_PRETTY === 'true' || Bun.env.NODE_ENV === 'development')
 
 export const logger = pino({
   level: Bun.env.LOG_LEVEL ?? (isTest ? 'silent' : 'info'),
-  transport: isTest ? undefined : { target: 'pino-pretty', options: { singleLine: true } },
+  transport: usePretty ? { target: 'pino-pretty', options: { singleLine: true } } : undefined,
 })
 
 export const workerLogger = logger.child({ module: 'worker' })
