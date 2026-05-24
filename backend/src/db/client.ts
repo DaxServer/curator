@@ -6,9 +6,26 @@ import mysql from 'mysql2/promise'
 
 let _db: MySql2Database<typeof schema> | undefined
 
+function parseDbUrl(url: string) {
+  const u = new URL(url)
+  return {
+    host: u.hostname,
+    port: u.port ? Number(u.port) : 3306,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: u.pathname.slice(1),
+  }
+}
+
 function getDb(): MySql2Database<typeof schema> {
   if (!_db) {
-    const pool = mysql.createPool(config.dbUrl)
+    const pool = mysql.createPool({
+      ...parseDbUrl(config.dbUrl),
+      waitForConnections: true,
+      connectionLimit: 10,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+    })
     _db = drizzle(pool, { schema, mode: 'default' })
   }
   return _db
