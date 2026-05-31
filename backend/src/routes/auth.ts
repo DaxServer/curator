@@ -41,6 +41,8 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
       return 'You must be an autoconfirmed Commons user with at least 50 edits to use this tool.'
     }
 
+    await session.regenerate()
+
     session.user = {
       username: identity.username,
       sub: identity.sub,
