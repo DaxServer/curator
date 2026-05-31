@@ -8,9 +8,9 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 // mock.module() in Bun is global and persistent for the entire test process —
 // it mutates live ES module bindings and cannot be restored between files.
-// Queue/rateLimiter/mediawiki mocks below are safe because no other test file imports
-// those modules directly. Services are injected via constructor, so DAL modules
-// are not mocked here — fake service objects are passed instead.
+// Queue/wikidata/mapillary mocks below are safe because no other test file imports
+// those modules directly. Services and rate-limiter functions are injected via
+// constructor, so their modules do not need to be mocked here.
 
 // ============================================================
 // Shared mock state — updated per-test via .mockImplementation
@@ -87,11 +87,6 @@ const mockFetchImagesBatch = mock(
 mock.module('@backend/workers/queue', () => ({
   enqueueUpload: mockEnqueueUpload,
   removeUploadJob: mockRemoveUploadJob,
-}))
-
-mock.module('@backend/core/rateLimiter', () => ({
-  getRateLimitForBatch: mockGetRateLimitForBatch,
-  getNextUploadDelay: mockGetNextUploadDelay,
 }))
 
 mock.module('@backend/mediawiki/wikidata', () => ({
@@ -197,12 +192,21 @@ const fakeUser = {
 
 function makeHandler(sender = makeSender(), redis = makeRedis()) {
   return {
-    handler: new Handler(fakeUser, sender, redis as unknown as import('ioredis').Redis, {
-      batches: fakeBatchService,
-      uploads: fakeUploadService,
-      presets: fakePresetService,
-      users: fakeUserService,
-    }),
+    handler: new Handler(
+      fakeUser,
+      sender,
+      redis as unknown as import('ioredis').Redis,
+      {
+        batches: fakeBatchService,
+        uploads: fakeUploadService,
+        presets: fakePresetService,
+        users: fakeUserService,
+      },
+      {
+        getRateLimitForBatch: mockGetRateLimitForBatch,
+        getNextUploadDelay: mockGetNextUploadDelay,
+      },
+    ),
     sender,
     redis,
   }
