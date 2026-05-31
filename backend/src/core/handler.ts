@@ -43,6 +43,11 @@ export type Services = {
   users: UserService
 }
 
+export type RateLimiterFns = {
+  getRateLimitForBatch: typeof getRateLimitForBatch
+  getNextUploadDelay: typeof getNextUploadDelay
+}
+
 function presetRowToItem(p: {
   id: number
   title: string
@@ -93,8 +98,15 @@ export class Handler {
   private uploadsInterval: ReturnType<typeof setTimeout> | null = null
   private batchesListInterval: ReturnType<typeof setInterval> | null = null
   private batchStreamer: OptimizedBatchStreamer
+  private rateLimiter: RateLimiterFns
 
-  constructor(user: SessionUserWithAuth, sender: WsSender, redis: Redis, services: Services) {
+  constructor(
+    user: SessionUserWithAuth,
+    sender: WsSender,
+    redis: Redis,
+    services: Services,
+    rateLimiter?: RateLimiterFns,
+  ) {
     this.user = user
     this.username = user.username
     this.userid = user.sub
@@ -102,6 +114,7 @@ export class Handler {
     this.redis = redis
     this.services = services
     this.batchStreamer = new OptimizedBatchStreamer(sender, this.username, services.batches)
+    this.rateLimiter = rateLimiter ?? { getRateLimitForBatch, getNextUploadDelay }
   }
 
   cancelTasks(): void {
@@ -210,9 +223,9 @@ export class Handler {
         return
       }
       const mwRetry = new MediaWikiClient(this.user.access_token)
-      const rateLimitRetry = await getRateLimitForBatch(this.userid, mwRetry)
+      const rateLimitRetry = await this.rateLimiter.getRateLimitForBatch(this.userid, mwRetry)
       for (const uploadId of newUploadIds) {
-        const delayMs = await getNextUploadDelay(this.userid, rateLimitRetry, this.redis)
+        const delayMs = await this.rateLimiter.getNextUploadDelay(this.userid, rateLimitRetry, this.redis)
         const jobId = await enqueueUpload(
           { uploadId, batchId: newBatchId, editGroupId, userid: this.userid },
           delayMs,
@@ -492,9 +505,9 @@ export class Handler {
       })
       if (created.length > 0) {
         const mw = new MediaWikiClient(this.user.access_token)
-        const rateLimit = await getRateLimitForBatch(this.userid, mw)
+        const rateLimit = await this.rateLimiter.getRateLimitForBatch(this.userid, mw)
         for (const c of created) {
-          const delayMs = await getNextUploadDelay(this.userid, rateLimit, this.redis)
+          const delayMs = await this.rateLimiter.getNextUploadDelay(this.userid, rateLimit, this.redis)
           const jobId = await enqueueUpload(
             {
               uploadId: c.id,
