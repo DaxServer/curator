@@ -166,9 +166,13 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
   worker.on('failed', async (job, err) => {
     workerLogger.error({ jobId: job?.id, err }, 'Job permanently failed')
     if (job) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
-      await uploads.clearUploadAccessToken(job.data.uploadId)
+      try {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
+        await uploads.clearUploadAccessToken(job.data.uploadId)
+      } catch (dbErr) {
+        workerLogger.error({ jobId: job.id, err: dbErr }, 'Failed to update database status for failed job')
+      }
     }
   })
 
