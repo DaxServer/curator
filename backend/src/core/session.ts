@@ -60,7 +60,7 @@ export const sessionStorePlugin = new Elysia({ name: 'session-store' }).decorate
 export const sessionPlugin = new Elysia({ name: 'session' })
   .use(sessionStorePlugin)
   .derive({ as: 'global' }, async ({ sessionStore, cookie }) => {
-    let id = cookie[COOKIE_NAME]?.value ?? randomUUID()
+    let id = cookie[COOKIE_NAME]?.value || randomUUID()
     const raw = await sessionStore.get(`session:${id}`)
     const stored: SessionData = raw ? JSON.parse(raw) : {}
 
@@ -74,7 +74,11 @@ export const sessionPlugin = new Elysia({ name: 'session' })
           cookie[COOKIE_NAME]!.remove()
           return
         }
-        const { save: _s, clear: _c, regenerate: _r, ...plain } = session
+        const plain: SessionData = {
+          user: session.user,
+          access_token: session.access_token,
+          request_token: session.request_token,
+        }
         await sessionStore.set(`session:${id}`, JSON.stringify(plain), 'EX', SESSION_TTL)
         cookie[COOKIE_NAME]!.set({ value: id, maxAge: SESSION_TTL })
       },
