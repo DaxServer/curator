@@ -14,7 +14,6 @@ let capturedProcessor: ((job: unknown) => Promise<void>) | undefined
 const capturedHandlers: Map<string, (...args: unknown[]) => unknown> = new Map()
 
 mock.module('bullmq', () => ({
-  // biome-ignore lint/suspicious/noExplicitAny: minimal BullMQ Worker stand-in for testing
   Worker: class MockWorker {
     constructor(_name: string, processor: (job: unknown) => Promise<void>) {
       capturedProcessor = processor

@@ -1,4 +1,4 @@
-import { type SessionStore } from '@backend/core/session'
+import type { SessionStore } from '@backend/core/session'
 import { adminRoutes } from '@backend/routes/admin'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'

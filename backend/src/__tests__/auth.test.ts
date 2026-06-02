@@ -1,5 +1,5 @@
 import type { OAuthClient } from '@backend/core/oauthClient'
-import { type SessionStore } from '@backend/core/session'
+import type { SessionStore } from '@backend/core/session'
 import { authRoutes } from '@backend/routes/auth'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'

@@ -85,7 +85,7 @@ describe('fetchExistingPages', () => {
 
     globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
       callCount++
-      capturedCookies.push((init?.headers as Record<string, string>)['Cookie'] ?? '')
+      capturedCookies.push((init?.headers as Record<string, string>).Cookie ?? '')
 
       if (callCount === 1) {
         return new Response(null, {

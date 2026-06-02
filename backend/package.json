@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "LOG_PRETTY=true bun --watch --no-clear-screen src/index.ts",
+    "worker": "LOG_PRETTY=true bun src/index.ts worker",
     "build": "bun scripts/embed-frontend.ts && bun build --compile --minify src/index.ts --outfile ../curator-server && git checkout -- src/embedded-frontend.ts",
     "test": "bun test",
     "lint": "bunx biome lint .",
