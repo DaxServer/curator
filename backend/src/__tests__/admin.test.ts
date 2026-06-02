@@ -1,5 +1,4 @@
 import type { SessionStore } from '@backend/core/session'
-import { adminRoutes } from '@backend/routes/admin'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'
 
@@ -8,6 +7,22 @@ const TEST_ENCRYPTION_KEY = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE'
 beforeAll(() => {
   Bun.env.TOKEN_ENCRYPTION_KEY = TEST_ENCRYPTION_KEY
 })
+
+// ============================================================
+// Mock workers/queue BEFORE importing admin routes
+// ============================================================
+
+const mockEnqueueUpload = mock(async () => 'job-1')
+
+mock.module('@backend/workers/queue', () => ({
+  enqueueUpload: mockEnqueueUpload,
+  removeUploadJob: mock(async () => {}),
+}))
+
+// Import AFTER mock.module()
+const { adminRoutes } = await import('@backend/routes/admin')
+
+// ============================================================
 
 function makeStore() {
   const m = new Map<string, string>()
@@ -72,6 +87,7 @@ function makeTestApp(overrides: ServiceOverrides = {}) {
     failUploadRequests: mock(async () => 0),
     getFailedUploadsGrouped: mock(async () => ({ items: [], total: 0 })),
     updateUploadFields: mock(async () => true),
+    updateJobTaskId: mock(async () => {}),
     retrySelectedUploadsToNewBatch: mock(async () => ({
       newUploadIds: [10],
       editGroupId: 'eg-123',
@@ -248,7 +264,8 @@ describe('PUT /api/admin/upload_requests/:id', () => {
 })
 
 describe('POST /api/admin/retry', () => {
-  it('returns 200 with new_batch_id when access token present', async () => {
+  it('returns 200 with new_batch_id and enqueues jobs', async () => {
+    mockEnqueueUpload.mockClear()
     const { app, m } = makeTestApp()
     const cookie = seedSessionWithToken(m)
     const res = await app.handle(
@@ -259,8 +276,14 @@ describe('POST /api/admin/retry', () => {
       }),
     )
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { new_batch_id: number }
-    expect(typeof body.new_batch_id).toBe('number')
+    const body = (await res.json()) as { new_batch_id: number; retried_count: number }
+    expect(body.new_batch_id).toBe(5)
+    expect(body.retried_count).toBe(1)
+    expect(mockEnqueueUpload).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueUpload).toHaveBeenCalledWith(
+      { uploadId: 10, batchId: 5, editGroupId: 'eg-123', userid: '1' },
+      0,
+    )
   })
 
   it('returns 401 when no access token in session', async () => {
