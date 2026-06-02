@@ -72,7 +72,7 @@ openssl rand -base64 32
 The webservice is run via the [curator-launcher](https://github.com/DaxServer/curator-launcher) image. When deploying for the first time:
 
 ```bash
-toolforge webservice buildservice start --buildservice-image tool-launcher/launcher:latest --mount=all
+toolforge webservice buildservice start --buildservice-image tool-curator/launcher:latest --mount=all
 ```
 
 For subsequent deployments (after a new release is published):
