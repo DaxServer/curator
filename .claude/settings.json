@@ -20,7 +20,7 @@
             "type": "command",
             "timeout": 120,
             "statusMessage": "Running tests, typecheck, and lint before commit...",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -q 'git commit' || exit 0; bun test && bun typecheck && bun lint || { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"CI checks failed — fix errors before committing\"}}'; exit 2; }"
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE 'git commit|but commit' || exit 0; bun test && bun typecheck && bun lint || { echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"CI checks failed — fix errors before committing\"}}'; exit 2; }"
           }
         ]
       }
