@@ -78,22 +78,19 @@ describe('upload worker — retryable errors escape the processor without a DB u
     ['HashLockError', new HashLockError('lock already held')],
     ['StorageError', new StorageError('storage write failed')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
-  ])(
-    '%s propagates out of the processor and leaves the DB untouched',
-    async (_name, error) => {
-      // Force the error to escape early (simulates it bubbling out of the inner try block).
-      mockGetById.mockImplementation(async () => {
-        throw error
-      })
+  ])('%s propagates out of the processor and leaves the DB untouched', async (_name, error) => {
+    // Force the error to escape early (simulates it bubbling out of the inner try block).
+    mockGetById.mockImplementation(async () => {
+      throw error
+    })
 
-      const job = makeJob(1)
-      await expect(capturedProcessor!(job)).rejects.toBe(error)
+    const job = makeJob(1)
+    await expect(capturedProcessor!(job)).rejects.toBe(error)
 
-      // No DB write of any kind — BullMQ owns the retry decision.
-      expect(mockUpdateStatus).not.toHaveBeenCalled()
-      expect(mockClearToken).not.toHaveBeenCalled()
-    },
-  )
+    // No DB write of any kind — BullMQ owns the retry decision.
+    expect(mockUpdateStatus).not.toHaveBeenCalled()
+    expect(mockClearToken).not.toHaveBeenCalled()
+  })
 })
 
 // === BullMQ 'failed' event must update the DB — this is the bug being fixed ===
@@ -108,21 +105,18 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
     ['HashLockError', new HashLockError('lock already held')],
     ['StorageError', new StorageError('storage write failed')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
-  ])(
-    '%s: permanently failed job updates DB status to "failed"',
-    async (_name, error) => {
-      const failedHandler = capturedHandlers.get('failed')
-      expect(failedHandler).toBeDefined()
+  ])('%s: permanently failed job updates DB status to "failed"', async (_name, error) => {
+    const failedHandler = capturedHandlers.get('failed')
+    expect(failedHandler).toBeDefined()
 
-      await failedHandler!(makeJob(1), error)
+    await failedHandler!(makeJob(1), error)
 
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'failed', {
-        type: 'error',
-        message: error.message,
-      })
-      expect(mockClearToken).toHaveBeenCalledWith(1)
-    },
-  )
+    expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'failed', {
+      type: 'error',
+      message: error.message,
+    })
+    expect(mockClearToken).toHaveBeenCalledWith(1)
+  })
 
   it('does not throw when BullMQ passes undefined as the job', async () => {
     const failedHandler = capturedHandlers.get('failed')

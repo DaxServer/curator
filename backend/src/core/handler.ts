@@ -225,7 +225,11 @@ export class Handler {
       const mwRetry = new MediaWikiClient(this.user.access_token)
       const rateLimitRetry = await this.rateLimiter.getRateLimitForBatch(this.userid, mwRetry)
       for (const uploadId of newUploadIds) {
-        const delayMs = await this.rateLimiter.getNextUploadDelay(this.userid, rateLimitRetry, this.redis)
+        const delayMs = await this.rateLimiter.getNextUploadDelay(
+          this.userid,
+          rateLimitRetry,
+          this.redis,
+        )
         const jobId = await enqueueUpload(
           { uploadId, batchId: newBatchId, editGroupId, userid: this.userid },
           delayMs,
@@ -507,7 +511,11 @@ export class Handler {
         const mw = new MediaWikiClient(this.user.access_token)
         const rateLimit = await this.rateLimiter.getRateLimitForBatch(this.userid, mw)
         for (const c of created) {
-          const delayMs = await this.rateLimiter.getNextUploadDelay(this.userid, rateLimit, this.redis)
+          const delayMs = await this.rateLimiter.getNextUploadDelay(
+            this.userid,
+            rateLimit,
+            this.redis,
+          )
           const jobId = await enqueueUpload(
             {
               uploadId: c.id,
