@@ -10,8 +10,12 @@ if (Bun.argv[2] === 'worker') {
   const worker = createUploadWorker(redis)
   worker.on('error', (err) => logger.error({ err }, 'Worker error'))
 
+  let shuttingDown = false
   const shutdown = async () => {
+    if (shuttingDown) return
+    shuttingDown = true
     await worker.close()
+    await redis.quit()
     process.exit(0)
   }
   process.on('SIGTERM', shutdown)
