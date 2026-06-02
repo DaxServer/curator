@@ -23,6 +23,7 @@ onMounted(() => {
     <Header />
     <DevAuthBanner v-if="isDev" />
     <MaintenanceBanner />
+    <BetaBanner />
 
     <template v-if="auth.isAuthenticated">
       <div
