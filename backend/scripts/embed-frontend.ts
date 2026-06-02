@@ -30,5 +30,5 @@ files.forEach((f, i) => {
 })
 lines.push('}')
 
-writeFileSync(outputFile, lines.join('\n') + '\n')
+writeFileSync(outputFile, `${lines.join('\n')}\n`)
 console.log(`Embedded ${files.length} frontend files into src/embedded-frontend.ts`)
