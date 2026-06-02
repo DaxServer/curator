@@ -2,6 +2,7 @@ import { config } from '@backend/config'
 import { encryptAccessToken } from '@backend/core/crypto'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
+import { enqueueUpload } from '@backend/workers/queue'
 import Elysia, { t } from 'elysia'
 
 const requireAdmin = new Elysia({ name: 'require-admin' })
@@ -194,15 +195,30 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
         return { message: 'No access token in session' }
       }
       const encryptedToken = encryptAccessToken(tokenPair)
-      const { newUploadIds, newBatchId } = await uploads.retrySelectedUploadsToNewBatch(
+      const { newUploadIds, editGroupId, newBatchId } = await uploads.retrySelectedUploadsToNewBatch(
         body.upload_ids,
         encryptedToken,
         session.user!.sub,
         session.user!.username,
       )
+      let enqueuedCount = 0
+      if (newUploadIds.length > 0 && editGroupId) {
+        const results = await Promise.allSettled(
+          newUploadIds.map((uploadId, i) =>
+            enqueueUpload(
+              { uploadId, batchId: newBatchId, editGroupId, userid: session.user!.sub },
+              i * 1000,
+            ).then(async (jobId) => {
+              await uploads.updateJobTaskId(uploadId, jobId)
+            }),
+          ),
+        )
+        enqueuedCount = results.filter((r) => r.status === 'fulfilled').length
+      }
       return {
         message: `Retrying ${newUploadIds.length} of ${body.upload_ids.length} requested uploads`,
         retried_count: newUploadIds.length,
+        enqueued_count: enqueuedCount,
         requested_count: body.upload_ids.length,
         new_batch_id: newBatchId,
       }
