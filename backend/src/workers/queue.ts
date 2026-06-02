@@ -14,7 +14,7 @@ let _queue: Queue<UploadJobData> | null = null
 
 function getUploadQueue(): Queue<UploadJobData> {
   if (!_queue) {
-    _queue = new Queue<UploadJobData>('uploads', { connection })
+    _queue = new Queue<UploadJobData>('uploads', { connection, prefix: '{bull}' })
   }
   return _queue
 }

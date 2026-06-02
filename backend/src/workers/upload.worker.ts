@@ -160,6 +160,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
     {
       connection: { url: config.redisUrl },
       concurrency: Number(config.workerConcurrency),
+      prefix: '{bull}',
     },
   )
 
