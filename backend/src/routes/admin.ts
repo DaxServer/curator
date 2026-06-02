@@ -201,18 +201,24 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
         session.user!.sub,
         session.user!.username,
       )
+      let enqueuedCount = 0
       if (newUploadIds.length > 0 && editGroupId) {
-        for (let i = 0; i < newUploadIds.length; i++) {
-          const jobId = await enqueueUpload(
-            { uploadId: newUploadIds[i]!, batchId: newBatchId, editGroupId, userid: session.user!.sub },
-            i * 1000,
-          )
-          await uploads.updateJobTaskId(newUploadIds[i]!, jobId)
-        }
+        const results = await Promise.allSettled(
+          newUploadIds.map((uploadId, i) =>
+            enqueueUpload(
+              { uploadId, batchId: newBatchId, editGroupId, userid: session.user!.sub },
+              i * 1000,
+            ).then(async (jobId) => {
+              await uploads.updateJobTaskId(uploadId, jobId)
+            }),
+          ),
+        )
+        enqueuedCount = results.filter((r) => r.status === 'fulfilled').length
       }
       return {
         message: `Retrying ${newUploadIds.length} of ${body.upload_ids.length} requested uploads`,
         retried_count: newUploadIds.length,
+        enqueued_count: enqueuedCount,
         requested_count: body.upload_ids.length,
         new_batch_id: newBatchId,
       }

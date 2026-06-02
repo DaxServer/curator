@@ -276,14 +276,32 @@ describe('POST /api/admin/retry', () => {
       }),
     )
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { new_batch_id: number; retried_count: number }
+    const body = (await res.json()) as { new_batch_id: number; retried_count: number; enqueued_count: number }
     expect(body.new_batch_id).toBe(5)
     expect(body.retried_count).toBe(1)
+    expect(body.enqueued_count).toBe(1)
     expect(mockEnqueueUpload).toHaveBeenCalledTimes(1)
     expect(mockEnqueueUpload).toHaveBeenCalledWith(
       { uploadId: 10, batchId: 5, editGroupId: 'eg-123', userid: '1' },
       0,
     )
+  })
+
+  it('returns 200 with enqueued_count=0 when enqueue fails', async () => {
+    mockEnqueueUpload.mockRejectedValueOnce(new Error('redis unavailable'))
+    const { app, m } = makeTestApp()
+    const cookie = seedSessionWithToken(m)
+    const res = await app.handle(
+      new Request('http://localhost/api/admin/retry', {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ upload_ids: [1] }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { retried_count: number; enqueued_count: number }
+    expect(body.retried_count).toBe(1)
+    expect(body.enqueued_count).toBe(0)
   })
 
   it('returns 401 when no access token in session', async () => {
