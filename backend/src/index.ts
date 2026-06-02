@@ -14,9 +14,12 @@ if (Bun.argv[2] === 'worker') {
   const shutdown = async () => {
     if (shuttingDown) return
     shuttingDown = true
-    await worker.close()
-    await redis.quit()
-    process.exit(0)
+    try {
+      await worker.close()
+      await redis.quit()
+    } finally {
+      process.exit(0)
+    }
   }
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
