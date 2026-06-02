@@ -53,6 +53,9 @@ const Noir = definePreset(Aura, {
       steppanel: {
         background: '{surface.50}',
       },
+      steppanels: {
+        padding: '0.875rem 0 1.125rem 0',
+      },
     },
   },
 } as Preset)

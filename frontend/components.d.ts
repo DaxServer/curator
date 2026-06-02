@@ -18,6 +18,7 @@ declare module 'vue' {
     BatchStats: typeof import('./src/components/batch/BatchStats.vue')['default']
     BatchStatsCard: typeof import('./src/components/batch/BatchStatsCard.vue')['default']
     BatchUploadsView: typeof import('./src/components/views/BatchUploadsView.vue')['default']
+    BetaBanner: typeof import('./src/components/BetaBanner.vue')['default']
     Button: typeof import('primevue/button')['default']
     Card: typeof import('primevue/card')['default']
     CategoryValidationMessages: typeof import('./src/components/steps/CategoryValidationMessages.vue')['default']
