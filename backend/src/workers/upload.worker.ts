@@ -11,7 +11,11 @@ import { UploadService } from '@backend/db/dal/uploads'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
 import { logger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
-import { buildStatementsFromMapillaryImage } from '@backend/mediawiki/sdc'
+import {
+  buildStatementsFromMapillaryImage,
+  computeLabelsDelta,
+  mergeSdcStatements,
+} from '@backend/mediawiki/sdc'
 import type { UploadJobData } from '@backend/workers/queue'
 import { Worker } from 'bullmq'
 import type { Redis } from 'ioredis'
@@ -19,8 +23,17 @@ import type { Redis } from 'ioredis'
 const buildEditSummary = (imageKey: string, batchId: number, editGroupId: string) =>
   `Uploaded via Curator from Mapillary image ${imageKey} (batch ${batchId}) ([[:toolforge:editgroups-commons/b/curator/${editGroupId}|details]])`
 
-export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
+export type WorkerDeps = {
+  makeClient?: (token: [string, string]) => MediaWikiClient
+  makeHandler?: () => MapillaryHandler
+  decryptToken?: (cipher: string) => [string, string]
+}
+
+export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<UploadJobData> {
   const uploads = new UploadService(lazyDb.client)
+  const makeClient = deps?.makeClient ?? ((token) => new MediaWikiClient(token))
+  const makeHandler = deps?.makeHandler ?? (() => new MapillaryHandler())
+  const decryptTokenFn = deps?.decryptToken ?? decryptAccessToken
 
   const worker = new Worker<UploadJobData>(
     'uploads',
@@ -46,7 +59,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
 
       let accessToken: [string, string]
       try {
-        accessToken = decryptAccessToken(upload.access_token)
+        accessToken = decryptTokenFn(upload.access_token)
       } catch {
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
@@ -55,7 +68,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         return
       }
 
-      const mw = new MediaWikiClient(accessToken)
+      const mw = makeClient(accessToken)
 
       const { blacklisted, reason } = await mw.checkTitleBlacklisted(upload.filename)
       if (blacklisted) {
@@ -70,7 +83,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         return
       }
 
-      const handler = new MapillaryHandler()
+      const handler = makeHandler()
       const images = await handler.fetchImagesBatch([upload.key], upload.collection ?? upload.key)
       const image = images.find((i) => i.id === upload.key)
 
@@ -112,25 +125,45 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
 
           if (links.length > 0) {
             const dupeFilename = links[0]!.title.replace(/^File:/, '')
-            const claims = buildStatementsFromMapillaryImage(image, !upload.copyright_override)
+            const newClaims = buildStatementsFromMapillaryImage(image, !upload.copyright_override)
             const labels = upload.labels as { language: string; value: string } | null
             const labelsPayload = labels
               ? { [labels.language]: { language: labels.language, value: labels.value } }
               : null
 
-            try {
-              await mw.applySdc(dupeFilename, claims, labelsPayload, summary)
-              await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
-                type: 'duplicated_sdc_updated',
-                links,
-                message: 'File already exists on Commons. SDC updated.',
-              })
-            } catch {
+            const existingSdc = await mw.fetchSdc(dupeFilename)
+            const claimsDelta = existingSdc
+              ? mergeSdcStatements(existingSdc.claims, newClaims)
+              : newClaims
+            const labelsDelta = computeLabelsDelta(existingSdc?.labels, labelsPayload)
+
+            if (claimsDelta.length === 0 && !labelsDelta) {
+              logger.info(`[worker] [${uploadId}/${batchId}] SDC already up to date on ${dupeFilename}`)
               await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                 type: 'duplicated_sdc_not_updated',
                 links,
-                message: 'File already exists on Commons. SDC could not be updated.',
+                message: 'File already exists on Commons. SDC is already up to date.',
               })
+            } else {
+              try {
+                await mw.applySdc(
+                  dupeFilename,
+                  claimsDelta.length > 0 ? claimsDelta : null,
+                  labelsDelta,
+                  summary,
+                )
+                await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
+                  type: 'duplicated_sdc_updated',
+                  links,
+                  message: 'File already exists on Commons. SDC updated.',
+                })
+              } catch {
+                await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
+                  type: 'duplicated_sdc_not_updated',
+                  links,
+                  message: 'File already exists on Commons. SDC could not be updated.',
+                })
+              }
             }
           } else {
             await uploads.updateUploadStatus(uploadId, 'duplicate', {
