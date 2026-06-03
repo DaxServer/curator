@@ -190,7 +190,10 @@ function snaksEqual(s1: RawSnak, s2: RawSnak): boolean {
   return normalizedSnakKey(s1) === normalizedSnakKey(s2)
 }
 
-function mergeQualifiersInto(existingStmt: RawStatement, newStmt: RawStatement): RawStatement | null {
+function mergeQualifiersInto(
+  existingStmt: RawStatement,
+  newStmt: RawStatement,
+): RawStatement | null {
   const newQuals = newStmt.qualifiers
   if (!newQuals || Object.keys(newQuals).length === 0) return null
 

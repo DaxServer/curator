@@ -78,11 +78,12 @@ describe('buildStatementsFromMapillaryImage / timeSnak', () => {
 // ---------------------------------------------------------------------------
 
 // Mirrors what fetchSdc() returns: statements with Wikidata IDs already present.
-function simulateExistingSdc(
-  statements: unknown[],
-): Record<string, unknown[]> {
+function simulateExistingSdc(statements: unknown[]): Record<string, unknown[]> {
   const existing: Record<string, unknown[]> = {}
-  for (const stmt of statements as Array<{ mainsnak: { property: string }; [k: string]: unknown }>) {
+  for (const stmt of statements as Array<{
+    mainsnak: { property: string }
+    [k: string]: unknown
+  }>) {
     const prop = stmt.mainsnak.property
     if (!existing[prop]) existing[prop] = []
     existing[prop].push({ ...stmt, id: `M1$${prop}-fake-id` })
@@ -113,9 +114,7 @@ describe('mergeSdcStatements', () => {
     const delta = mergeSdcStatements(existing, newStatements)
     const deltaProps = (delta as AnyClaim[]).map((s) => s.mainsnak?.property)
     expect(deltaProps).not.toContain('P1947')
-    const otherProps = newStatements
-      .map((s) => s.mainsnak?.property)
-      .filter((p) => p !== 'P1947')
+    const otherProps = newStatements.map((s) => s.mainsnak?.property).filter((p) => p !== 'P1947')
     for (const prop of otherProps) {
       expect(deltaProps).toContain(prop)
     }
@@ -195,7 +194,13 @@ describe('mergeSdcStatements', () => {
           mainsnak: {
             ...coordStmt.mainsnak,
             datavalue: {
-              value: { latitude: 51.5, longitude: -0.1, altitude: null, precision: 1e-9, globe: 'http://www.wikidata.org/entity/Q2' },
+              value: {
+                latitude: 51.5,
+                longitude: -0.1,
+                altitude: null,
+                precision: 1e-9,
+                globe: 'http://www.wikidata.org/entity/Q2',
+              },
               type: 'globecoordinate',
             },
           },
@@ -222,8 +227,17 @@ describe('mergeSdcStatements', () => {
     const publishedInStmt = newStatements.find((s) => s.mainsnak.property === 'P1433')!
 
     const otherDb = {
-      mainsnak: { snaktype: 'value', property: 'P1433', datavalue: { value: { 'entity-type': 'item', 'numeric-id': 123 }, type: 'wikibase-entityid' } },
-      type: 'statement', rank: 'normal', id: 'M1$P1433-other',
+      mainsnak: {
+        snaktype: 'value',
+        property: 'P1433',
+        datavalue: {
+          value: { 'entity-type': 'item', 'numeric-id': 123 },
+          type: 'wikibase-entityid',
+        },
+      },
+      type: 'statement',
+      rank: 'normal',
+      id: 'M1$P1433-other',
     }
     const mapillaryDb = { ...publishedInStmt, id: 'M1$P1433-mapillary' }
 
@@ -259,7 +273,8 @@ describe('mergeSdcStatements', () => {
 
     const delta = mergeSdcStatements({ P170: [existingCreator] }, newStatements)
     const updatedCreator = (delta as StmtWithQuals[]).find((s) => s.mainsnak.property === 'P170')!
-    const mergedQuals = (updatedCreator as { qualifiers?: Record<string, unknown[]> }).qualifiers ?? {}
+    const mergedQuals =
+      (updatedCreator as { qualifiers?: Record<string, unknown[]> }).qualifiers ?? {}
 
     expect(Object.keys(mergedQuals)).toContain('P13988')
     expect(mergedQuals['P2093']).toHaveLength(1)
@@ -277,7 +292,11 @@ describe('mergeSdcStatements', () => {
     const newStatements = buildStatementsFromMapillaryImage(baseImage, false) as StmtWithQuals[]
     const creatorStmt = newStatements.find((s) => s.mainsnak.property === 'P170')!
 
-    const extraSnak = { snaktype: 'value', property: 'P373', datavalue: { value: 'Mapillary', type: 'string' } }
+    const extraSnak = {
+      snaktype: 'value',
+      property: 'P373',
+      datavalue: { value: 'Mapillary', type: 'string' },
+    }
     const existingCreator = {
       ...creatorStmt,
       id: 'M1$P170-fake',

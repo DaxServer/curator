@@ -138,7 +138,9 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
             const labelsDelta = computeLabelsDelta(existingSdc?.labels, labelsPayload)
 
             if (claimsDelta.length === 0 && !labelsDelta) {
-              logger.info(`[worker] [${uploadId}/${batchId}] SDC already up to date on ${dupeFilename}`)
+              logger.info(
+                `[worker] [${uploadId}/${batchId}] SDC already up to date on ${dupeFilename}`,
+              )
               await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                 type: 'duplicated_sdc_not_updated',
                 links,

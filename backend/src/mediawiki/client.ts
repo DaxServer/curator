@@ -352,13 +352,13 @@ export class MediaWikiClient {
       action: 'wbgetentities',
       sites: 'commonswiki',
       titles: `File:${title}`,
-      props: 'claims|labels',
+      props: 'statements|labels',
     })
     const entities = result.entities as Record<string, Record<string, unknown>>
     const entity = Object.values(entities)[0]
     if (!entity || 'missing' in entity) return null
     return {
-      claims: (entity.claims ?? {}) as Record<string, unknown[]>,
+      claims: (entity.statements ?? {}) as Record<string, unknown[]>,
       labels: (entity.labels ?? {}) as Record<string, unknown>,
     }
   }

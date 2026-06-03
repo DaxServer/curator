@@ -14,7 +14,7 @@ import { DuplicateUploadError } from '@backend/core/errors'
 import type { MediaWikiClient } from '@backend/mediawiki/client'
 import { buildStatementsFromMapillaryImage } from '@backend/mediawiki/sdc'
 import type { MediaImage } from '@backend/types/ws'
-import { beforeEach, describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
 
 // ── safe module mocks (not imported directly by other test files) ─────────────
@@ -49,7 +49,11 @@ const FAKE_IMAGE: MediaImage = {
   id: 'seq-abc123',
   title: 'test.jpg',
   dates: { taken: '2023-06-15T10:00:00Z' },
-  creator: { id: 'u1', username: 'photographer', profile_url: 'https://www.mapillary.com/app/user/photographer' },
+  creator: {
+    id: 'u1',
+    username: 'photographer',
+    profile_url: 'https://www.mapillary.com/app/user/photographer',
+  },
   location: { latitude: 48.85, longitude: 2.35, compass_angle: 90 },
   urls: {
     url: 'https://www.mapillary.com/app/?pKey=seq-abc123',
@@ -74,7 +78,9 @@ import { createUploadWorker } from '@backend/workers/upload.worker'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const DUPE_LINKS = [{ title: 'File:Existing.jpg', url: 'https://commons.wikimedia.org/wiki/File:Existing.jpg' }]
+const DUPE_LINKS = [
+  { title: 'File:Existing.jpg', url: 'https://commons.wikimedia.org/wiki/File:Existing.jpg' },
+]
 
 function makeJob(uploadId = 1) {
   return { id: `job-${uploadId}`, data: { uploadId, batchId: 1, editGroupId: 'eg-abc' } }
@@ -96,16 +102,26 @@ function makeUpload(overrides: Record<string, unknown> = {}) {
 }
 
 /** Build a mock MediaWikiClient with injectable method overrides. */
-function makeClientStub(overrides: Partial<{
-  checkTitleBlacklisted: () => Promise<{ blacklisted: boolean; reason: string }>
-  uploadFile: () => Promise<string>
-  fetchSdc: () => Promise<{ claims: Record<string, unknown[]>; labels: Record<string, unknown> } | null>
-  applySdc: (...args: unknown[]) => Promise<void>
-  nullEdit: () => Promise<void>
-}> = {}): MediaWikiClient {
+function makeClientStub(
+  overrides: Partial<{
+    checkTitleBlacklisted: () => Promise<{ blacklisted: boolean; reason: string }>
+    uploadFile: () => Promise<string>
+    fetchSdc: () => Promise<{
+      claims: Record<string, unknown[]>
+      labels: Record<string, unknown>
+    } | null>
+    applySdc: (...args: unknown[]) => Promise<void>
+    nullEdit: () => Promise<void>
+  }> = {},
+): MediaWikiClient {
   return {
-    checkTitleBlacklisted: overrides.checkTitleBlacklisted ?? (async () => ({ blacklisted: false, reason: '' })),
-    uploadFile: overrides.uploadFile ?? (async () => { throw new DuplicateUploadError(DUPE_LINKS, 'dup') }),
+    checkTitleBlacklisted:
+      overrides.checkTitleBlacklisted ?? (async () => ({ blacklisted: false, reason: '' })),
+    uploadFile:
+      overrides.uploadFile ??
+      (async () => {
+        throw new DuplicateUploadError(DUPE_LINKS, 'dup')
+      }),
     fetchSdc: overrides.fetchSdc ?? (async () => null),
     applySdc: overrides.applySdc ?? (async () => {}),
     nullEdit: overrides.nullEdit ?? (async () => {}),
@@ -113,11 +129,12 @@ function makeClientStub(overrides: Partial<{
 }
 
 /** Simulate what fetchSdc() returns: same statements but with Wikidata IDs added. */
-function simulateExistingSdc(
-  statements: unknown[],
-): Record<string, unknown[]> {
+function simulateExistingSdc(statements: unknown[]): Record<string, unknown[]> {
   const grouped: Record<string, unknown[]> = {}
-  for (const stmt of statements as Array<{ mainsnak: { property: string }; [k: string]: unknown }>) {
+  for (const stmt of statements as Array<{
+    mainsnak: { property: string }
+    [k: string]: unknown
+  }>) {
     const prop = stmt.mainsnak.property
     if (!grouped[prop]) grouped[prop] = []
     grouped[prop].push({ ...stmt, id: `M1$${prop}-existing` })
@@ -188,7 +205,9 @@ describe('upload worker — duplicate path: sends only missing statements to app
     }>
 
     // Pre-populate all properties EXCEPT P1947 (Mapillary Photo ID)
-    const existingClaims = simulateExistingSdc(newClaims.filter((s) => s.mainsnak.property !== 'P1947'))
+    const existingClaims = simulateExistingSdc(
+      newClaims.filter((s) => s.mainsnak.property !== 'P1947'),
+    )
 
     const applySdc = mock(async () => {})
     const stub = makeClientStub({
