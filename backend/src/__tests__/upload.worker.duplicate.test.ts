@@ -1,21 +1,14 @@
-// Tests for the upload worker's duplicate-handling path.
+// Upload worker — duplicate-handling path.
 //
-// Bug being proven: before the fix the worker called applySdc(dupeFilename, ALL_CLAIMS)
-// unconditionally — wbeditentity adds new statements for every claim that lacks an id,
-// so each re-upload attempt appended duplicate SDC statements to the existing file.
+// When a file already exists on Commons the worker fetches the existing SDC,
+// computes a delta via mergeSdcStatements(), and only calls applySdc() if
+// something is missing or out of date.
 //
-// After the fix the worker must:
-//   1. Call fetchSdc() to read existing SDC from the duplicate file.
-//   2. Use mergeSdcStatements() to compute only the delta.
-//   3. Skip applySdc() entirely when the delta is empty (SDC already up to date) and
-//      set status to 'duplicated_sdc_not_updated'.
-//   4. Call applySdc() with only the delta statements when something is missing and
-//      set status to 'duplicated_sdc_updated'.
-//
-// This file avoids mock.module() for @backend/core/crypto and @backend/mediawiki/client
-// (both imported by other test files) by using the WorkerDeps injection interface.
-// Only @backend/handlers/mapillary is module-mocked here; it is not directly imported
-// by any other test file.
+// mock.module() is intentionally avoided for @backend/core/crypto and
+// @backend/mediawiki/client (both imported directly by other test files).
+// Instead, WorkerDeps injection supplies mock implementations inline.
+// @backend/handlers/mapillary is module-mocked here because no other test
+// file imports it directly.
 
 import { DuplicateUploadError } from '@backend/core/errors'
 import type { MediaWikiClient } from '@backend/mediawiki/client'
@@ -177,7 +170,7 @@ describe('upload worker — duplicate path: skips applySdc when SDC is already u
 
     await capturedProcessor!(makeJob())
 
-    // Core bug: without the fix, applySdc was always called, creating duplicate statements.
+    // applySdc must not be called when the delta is empty.
     expect(applySdc).not.toHaveBeenCalled()
     expect(mockUpdateStatus).toHaveBeenCalledWith(
       1,
@@ -208,7 +201,7 @@ describe('upload worker — duplicate path: sends only missing statements to app
 
     expect(applySdc).toHaveBeenCalledTimes(1)
 
-    // Core bug: before the fix, ALL claims were sent (10+); after the fix, only P1947.
+    // Only the missing property should appear in the delta, not the entire claim set.
     const applyCalls = applySdc.mock.calls as unknown as unknown[][]
     const claimsArg = applyCalls[0]![1] as Array<{ mainsnak: { property: string } }>
     expect(claimsArg).toHaveLength(1)
