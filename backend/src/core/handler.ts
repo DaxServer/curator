@@ -9,7 +9,7 @@ import type { PresetService } from '@backend/db/dal/presets'
 import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
 import type { UserService } from '@backend/db/dal/users'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
-import { mapillaryLogger, wsLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
 import { WikidataClient } from '@backend/mediawiki/wikidata'
 import type {
@@ -137,7 +137,7 @@ export class Handler {
     try {
       await fn()
     } catch (e) {
-      wsLogger.error({ name, username: this.username, err: e }, 'Handler error')
+      logger.error({ name, username: this.username, err: e }, 'Handler error')
       this.sendError('Internal server error — please notify User:DaxServer')
     }
   }
@@ -167,7 +167,7 @@ export class Handler {
         return
       }
       const uploads = await this.services.uploads.getUploadsByBatch(batchid)
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Sending batch ${batchid} and ${uploads.length} uploads for ${this.username}`,
       )
       this.sender.send({
@@ -202,7 +202,7 @@ export class Handler {
       const all = await this.services.uploads.getUploadsByBatch(batchid)
       const failedIds = all.filter((u) => u.status === 'failed').map((u) => u.id)
       if (failedIds.length === 0) {
-        wsLogger.info(
+        logger.info(
           `[ws] [resp] No failed uploads to retry for batch ${batchid} for ${this.username}`,
         )
         this.sendError('No failed uploads to retry')
@@ -216,7 +216,7 @@ export class Handler {
           this.username,
         )
       if (newUploadIds.length === 0 || !editGroupId) {
-        wsLogger.info(
+        logger.info(
           `[ws] [resp] No failed uploads to retry for batch ${batchid} for ${this.username}`,
         )
         this.sendError('No failed uploads to retry')
@@ -236,7 +236,7 @@ export class Handler {
         )
         await this.services.uploads.updateJobTaskId(uploadId, jobId)
       }
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Retried ${newUploadIds.length} uploads for batch ${batchid} for ${this.username}`,
       )
       this.sender.send({
@@ -267,13 +267,13 @@ export class Handler {
         throw e
       }
       if (cancelled.size === 0) {
-        wsLogger.info(
+        logger.info(
           `[ws] [resp] No queued items to cancel for batch ${batchid} for ${this.username}`,
         )
         this.sendError('No queued items to cancel')
         return
       }
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Cancelled ${cancelled.size} uploads for batch ${batchid} for ${this.username}`,
       )
       await Promise.all(
@@ -288,7 +288,7 @@ export class Handler {
     await this.safe('subscribeBatch', async () => {
       if (this.uploadsInterval) clearTimeout(this.uploadsInterval)
       this.uploadsInterval = this.startUploadStream(batchid)
-      wsLogger.info(`[ws] [resp] Subscribed to batch ${batchid} for ${this.username}`)
+      logger.info(`[ws] [resp] Subscribed to batch ${batchid} for ${this.username}`)
       this.sender.send({ type: 'SUBSCRIBED', data: batchid, nonce: nonce() })
     })
   }
@@ -298,7 +298,7 @@ export class Handler {
       clearTimeout(this.uploadsInterval)
       this.uploadsInterval = null
     }
-    wsLogger.info(`[ws] [resp] Unsubscribed from batch updates for ${this.username}`)
+    logger.info(`[ws] [resp] Unsubscribed from batch updates for ${this.username}`)
   }
 
   async subscribeBatchesList(data: { userid?: string; filter?: string }): Promise<void> {
@@ -315,14 +315,14 @@ export class Handler {
 
   async unsubscribeBatchesList(): Promise<void> {
     this.batchStreamer.stopStreaming()
-    wsLogger.info(`[ws] [resp] Unsubscribed from batches list for ${this.username}`)
+    logger.info(`[ws] [resp] Unsubscribed from batches list for ${this.username}`)
   }
 
   async createBatch(): Promise<void> {
     await this.safe('createBatch', async () => {
       await this.services.users.ensureUser(this.userid, this.username)
       const batch = await this.services.batches.createBatch(this.userid, this.username)
-      wsLogger.info(`[ws] [resp] Batch ${batch.id} created for ${this.username}`)
+      logger.info(`[ws] [resp] Batch ${batch.id} created for ${this.username}`)
       this.sender.send({ type: 'BATCH_CREATED', data: batch.id, nonce: nonce() })
     })
   }
@@ -334,7 +334,7 @@ export class Handler {
         this.sendError('Preset not found or permission denied')
         return
       }
-      wsLogger.info(`[ws] [resp] Deleted preset ${presetId} for ${this.username}`)
+      logger.info(`[ws] [resp] Deleted preset ${presetId} for ${this.username}`)
       await this.fetchPresets('mapillary')
     })
   }
@@ -348,7 +348,7 @@ export class Handler {
           this.sendError('Collection not found')
           return
         }
-        mapillaryLogger.info(
+        logger.info(
           `[mapillary] Found ${images.length} images in collection ${collection} for ${this.username}`,
         )
         try {
@@ -358,7 +358,7 @@ export class Handler {
             if (pages) img.existing = pages
           }
         } catch (e) {
-          mapillaryLogger.warn({ collection, err: e }, 'WCQS existing pages fetch failed')
+          logger.warn({ collection, err: e }, 'WCQS existing pages fetch failed')
         }
         const first = images[0]!
         this.sender.send({
@@ -372,14 +372,14 @@ export class Handler {
           await this.fetchImagesInBatches(collection, handler)
           return
         }
-        mapillaryLogger.error({ collection, err: e }, 'API error')
+        logger.error({ collection, err: e }, 'API error')
         this.sendError(`Mapillary API Error: ${msg}`)
       }
     })
   }
 
   private async fetchImagesInBatches(collection: string, handler: MapillaryHandler): Promise<void> {
-    mapillaryLogger.warn(
+    logger.warn(
       `[mapillary] Attempting batch retrieval for ${collection} for ${this.username}`,
     )
     this.sender.send({
@@ -393,7 +393,7 @@ export class Handler {
         this.sendError('Collection has no images')
         return
       }
-      mapillaryLogger.info(
+      logger.info(
         `[mapillary] Found ${ids.length} images in collection ${collection} for ${this.username}`,
       )
       this.sender.send({ type: 'COLLECTION_IMAGE_IDS', data: ids, nonce: nonce() })
@@ -407,7 +407,7 @@ export class Handler {
             if (pages) img.existing = pages
           }
         } catch (e) {
-          mapillaryLogger.warn({ collection, err: e }, 'WCQS existing pages fetch failed')
+          logger.warn({ collection, err: e }, 'WCQS existing pages fetch failed')
         }
         this.sender.send({
           type: 'PARTIAL_COLLECTION_IMAGES',
@@ -416,7 +416,7 @@ export class Handler {
         })
       }
     } catch (e) {
-      mapillaryLogger.error({ collection, err: e }, 'Batch retrieval failed')
+      logger.error({ collection, err: e }, 'Batch retrieval failed')
       this.sendError(`Batch retrieval failed: ${(e as Error).message}`)
     }
   }
@@ -424,7 +424,7 @@ export class Handler {
   async fetchPresets(handlerType: 'mapillary'): Promise<void> {
     await this.safe('fetchPresets', async () => {
       const rows = await this.services.presets.getPresetsForHandler(this.userid, handlerType)
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Sending ${rows.length} presets for ${this.username} handler=${handlerType}`,
       )
       this.sender.send({
@@ -485,7 +485,7 @@ export class Handler {
     handler?: WsHandler
   }): Promise<void> {
     await this.safe('uploadSlice', async () => {
-      wsLogger.info(
+      logger.info(
         `[ws] Creating upload slice ${data.sliceid} with ${data.items.length} items for ${this.username} in batch ${data.batchid}`,
       )
       const batch = await this.services.batches.getBatch(data.batchid)
@@ -528,7 +528,7 @@ export class Handler {
           await this.services.uploads.updateJobTaskId(c.id, jobId)
         }
       }
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Slice ${data.sliceid} of batch ${data.batchid} (${created.length} uploads) enqueued for ${this.username}`,
       )
       this.sender.send({
@@ -546,7 +546,7 @@ export class Handler {
       const results = await Promise.all(titles.map((t) => mw.isCategoryDeleted(t)))
       const deleted = titles.filter((_, i) => results[i])
       if (deleted.length > 0) {
-        wsLogger.info(
+        logger.info(
           `[ws] [resp] Categories ${deleted.join(', ')} are deleted for ${this.username}`,
         )
         this.sender.send({
@@ -569,7 +569,7 @@ export class Handler {
         return
       }
       const normalized = createdTitle.replace(/ /g, '_')
-      wsLogger.info(`[ws] [resp] Created category ${createdTitle} for ${this.username}`)
+      logger.info(`[ws] [resp] Created category ${createdTitle} for ${this.username}`)
       this.sender.send({
         type: 'CATEGORY_CREATED_RESPONSE',
         data: { title: normalized },
@@ -579,9 +579,9 @@ export class Handler {
         try {
           const wd = new WikidataClient(this.user.access_token)
           await wd.addCommonsCategory(wikidataQid, title)
-          wsLogger.info(`[ws] Added P373 and sitelink for ${wikidataQid} → Category:${title}`)
+          logger.info(`[ws] Added P373 and sitelink for ${wikidataQid} → Category:${title}`)
         } catch (e) {
-          wsLogger.error({ wikidataQid, err: e }, 'Wikidata edit failed')
+          logger.error({ wikidataQid, err: e }, 'Wikidata edit failed')
         }
       }
     })
@@ -596,7 +596,7 @@ export class Handler {
         const replaced = await mw.replaceCategoryInPage(t, source, target)
         if (replaced) count++
       }
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Recategorized ${count}/${titles.length} files from [[Category:${source}]] to [[Category:${target}]] for ${this.username}`,
       )
       this.sender.send({
@@ -637,7 +637,7 @@ export class Handler {
           return
         }
       } catch (e) {
-        wsLogger.error({ batchid, err: e }, 'Upload stream error')
+        logger.error({ batchid, err: e }, 'Upload stream error')
       }
       this.uploadsInterval = setTimeout(poll, STREAM_INTERVAL_MS)
     }

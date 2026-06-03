@@ -2,7 +2,7 @@ import { config } from '@backend/config'
 import { Handler } from '@backend/core/handler'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
-import { wsLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import { ClientMessage, ServerMessage } from '@backend/types/ws'
 import Elysia, { ValidationError } from 'elysia'
 import { Redis } from 'ioredis'
@@ -26,7 +26,7 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
   .use(dbPlugin)
   .onError(({ error }) => {
     if (error instanceof ValidationError) {
-      wsLogger.error({ errors: error.all, message: error.message }, 'WebSocket validation error')
+      logger.error({ errors: error.all, message: error.message }, 'WebSocket validation error')
     }
   })
   .ws('/ws', {
@@ -54,7 +54,7 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
         users,
       })
       connections.set(ws.id, handler)
-      wsLogger.info(`User ${user.username} connected`)
+      logger.info(`User ${user.username} connected`)
     },
     message(ws, body) {
       if (!ws.data.session.user) {
@@ -66,7 +66,7 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
         ws.close(1011, 'Handler not initialized')
         return
       }
-      wsLogger.info(`[ws] ${body.type} from ${ws.data.session.user.username}`)
+      logger.info(`[ws] ${body.type} from ${ws.data.session.user.username}`)
       switch (body.type) {
         case 'FETCH_BATCHES':
           handler.fetchBatches(body.data)
