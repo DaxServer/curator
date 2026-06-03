@@ -78,16 +78,19 @@ afterAll(() => {
 async function wsSendAndCollect(msg: unknown, timeoutMs = 1000): Promise<string[]> {
   return new Promise((resolve) => {
     const received: string[] = []
-    const timer = setTimeout(() => resolve(received), timeoutMs)
-    sharedWs.addEventListener(
-      'message',
-      (e) => {
-        received.push(e.data as string)
-        clearTimeout(timer)
-        resolve(received)
-      },
-      { once: true },
-    )
+
+    const handler = (e: MessageEvent) => {
+      received.push(e.data as string)
+      clearTimeout(timer)
+      resolve(received)
+    }
+
+    const timer = setTimeout(() => {
+      sharedWs.removeEventListener('message', handler)
+      resolve(received)
+    }, timeoutMs)
+
+    sharedWs.addEventListener('message', handler, { once: true })
     sharedWs.send(JSON.stringify(msg))
   })
 }
