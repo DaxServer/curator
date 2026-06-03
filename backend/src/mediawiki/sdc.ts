@@ -142,6 +142,136 @@ function createStatement(mainsnak: unknown, qualifiers?: unknown[]): unknown {
   }
 }
 
+type RawSnak = {
+  snaktype: string
+  property: string
+  datavalue?: { value: unknown; type: string }
+}
+
+type RawStatement = {
+  mainsnak: RawSnak
+  type: string
+  rank: string
+  id?: string
+  qualifiers?: Record<string, RawSnak[]>
+  'qualifiers-order'?: string[]
+}
+
+function normalizedSnakKey(snak: RawSnak): string {
+  if (snak.snaktype === 'somevalue') return 'somevalue'
+  if (snak.snaktype === 'novalue') return 'novalue'
+  const dv = snak.datavalue
+  if (!dv) return 'unknown'
+  const v = dv.value
+  switch (dv.type) {
+    case 'string':
+      return `string:${v}`
+    case 'wikibase-entityid': {
+      const e = v as { 'numeric-id'?: number; id?: string }
+      return `entity:${e['numeric-id'] ?? e.id}`
+    }
+    case 'time':
+      return `time:${(v as { time: string }).time}`
+    case 'globecoordinate': {
+      const c = v as { latitude: number; longitude: number }
+      return `coord:${c.latitude}:${c.longitude}`
+    }
+    case 'quantity': {
+      const q = v as { amount: string; unit: string }
+      return `qty:${q.amount}:${q.unit}`
+    }
+    default:
+      return JSON.stringify(v)
+  }
+}
+
+function snaksEqual(s1: RawSnak, s2: RawSnak): boolean {
+  if (s1.snaktype !== s2.snaktype) return false
+  return normalizedSnakKey(s1) === normalizedSnakKey(s2)
+}
+
+function mergeQualifiersInto(
+  existingStmt: RawStatement,
+  newStmt: RawStatement,
+): RawStatement | null {
+  const newQuals = newStmt.qualifiers
+  if (!newQuals || Object.keys(newQuals).length === 0) return null
+
+  const merged = { ...(existingStmt.qualifiers ?? {}) } as Record<string, RawSnak[]>
+  const order = [...(existingStmt['qualifiers-order'] ?? [])]
+  let changed = false
+
+  for (const [prop, snaks] of Object.entries(newQuals)) {
+    for (const newSnak of snaks as RawSnak[]) {
+      const existingSnaks = merged[prop] ?? []
+      if (!existingSnaks.some((s) => snaksEqual(s, newSnak))) {
+        merged[prop] = [...existingSnaks, newSnak]
+        if (!order.includes(prop)) order.push(prop)
+        changed = true
+      }
+    }
+  }
+
+  if (!changed) return null
+  return { ...existingStmt, qualifiers: merged, 'qualifiers-order': order }
+}
+
+/**
+ * Merge new SDC statements into existing ones — additive and non-destructive.
+ *
+ * - Property absent in existing → add the new statement (no id).
+ * - Property present, matching mainsnak value → merge qualifiers additively; include
+ *   the existing statement (with its id) only if qualifiers actually changed.
+ * - Property present, conflicting value → skip (never overwrite).
+ * - Globe-coordinate statements → skip if the property already exists.
+ *
+ * Returns only the statements that need to be sent to wbeditentity as a delta.
+ */
+export function mergeSdcStatements(
+  existing: Record<string, unknown[]>,
+  newStatements: unknown[],
+): unknown[] {
+  const result: unknown[] = []
+
+  for (const stmt of newStatements as RawStatement[]) {
+    const prop = stmt.mainsnak.property
+    const existingForProp = (existing[prop] ?? []) as RawStatement[]
+
+    if (existingForProp.length === 0) {
+      result.push(stmt)
+      continue
+    }
+
+    // Globe-coordinate statements: preserve whatever is already on the file.
+    if (stmt.mainsnak.datavalue?.type === 'globecoordinate') continue
+
+    const matchIdx = existingForProp.findIndex((s) => snaksEqual(s.mainsnak, stmt.mainsnak))
+    if (matchIdx === -1) continue // conflicting value — never overwrite
+
+    const updated = mergeQualifiersInto(existingForProp[matchIdx]!, stmt)
+    if (updated) result.push(updated)
+  }
+
+  return result
+}
+
+/**
+ * Compute only the labels that differ from existing ones.
+ * Returns null when there is nothing to update.
+ */
+export function computeLabelsDelta(
+  existing: Record<string, unknown> | undefined | null,
+  newLabels: Record<string, { language: string; value: string }> | null,
+): Record<string, { language: string; value: string }> | null {
+  if (!newLabels) return null
+  const delta: Record<string, { language: string; value: string }> = {}
+  for (const [lang, label] of Object.entries(newLabels)) {
+    const existingValue = (existing?.[lang] as { value?: string } | undefined)?.value
+    if (existingValue !== label.value) delta[lang] = label
+  }
+  return Object.keys(delta).length > 0 ? delta : null
+}
+
 export function buildStatementsFromMapillaryImage(
   image: MediaImage,
   includeDefaultCopyright: boolean,

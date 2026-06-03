@@ -482,3 +482,64 @@ describe('MediaWikiClient.replaceCategoryInPage', () => {
     expect(result).toBe(false)
   })
 })
+
+describe('MediaWikiClient.fetchSdc', () => {
+  it('returns null when the entity is marked missing', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => ({
+      entities: { 'File:Missing.jpg': { missing: true } },
+    }))
+    const result = await client.fetchSdc('Missing.jpg')
+    expect(result).toBeNull()
+  })
+
+  it('uses a single wbgetentities call with sites=commonswiki and props=statements', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const apiRequest = mock(async () => ({
+      entities: { M99: { type: 'mediainfo', id: 'M99', labels: {}, statements: {} } },
+    }))
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = apiRequest
+    await client.fetchSdc('Photo.jpg')
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    const calls = apiRequest.mock.calls as unknown as Array<[Record<string, string>]>
+    expect(calls[0]![0]).toMatchObject({
+      action: 'wbgetentities',
+      sites: 'commonswiki',
+      props: 'statements|labels',
+    })
+  })
+
+  it('reads SDC from entity.statements (Commons MediaInfo format, not entity.claims)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const existingStatements = {
+      P170: [
+        {
+          mainsnak: { snaktype: 'somevalue', property: 'P170' },
+          id: 'M99$P170-abc',
+          type: 'statement',
+          rank: 'normal',
+        },
+      ],
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => ({
+      entities: {
+        M99: { type: 'mediainfo', id: 'M99', labels: {}, statements: existingStatements },
+      },
+    }))
+    const result = await client.fetchSdc('Photo.jpg')
+    expect(result!.claims).toEqual(existingStatements)
+  })
+
+  it('returns empty claims when the entity has no statements yet', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => ({
+      entities: { M77: { type: 'mediainfo', id: 'M77', labels: {}, statements: {} } },
+    }))
+    const result = await client.fetchSdc('New.jpg')
+    expect(result!.claims).toEqual({})
+  })
+})
