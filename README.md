@@ -1,4 +1,4 @@
-![GitHub License](https://img.shields.io/github/license/DaxServer/curator?link=https%3A%2F%2Fopensource.org%2Flicense%2FMIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 # Curator
 
