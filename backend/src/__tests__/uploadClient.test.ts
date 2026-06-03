@@ -38,7 +38,10 @@ describe('MediaWikiClient.uploadFile hash lock TTL', () => {
       upload: {
         filekey: 'stash-key',
         result: 'Success',
-        imageinfo: { url: 'https://commons.wikimedia.org/test.jpg' },
+        imageinfo: {
+          url: 'https://upload.wikimedia.org/wikipedia/commons/t/te/test.jpg',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:test.jpg',
+        },
       },
     }))
 
@@ -152,7 +155,10 @@ describe('MediaWikiClient.uploadFile chunked upload', () => {
         upload: {
           filekey: `stash-key-${chunkCall}`,
           result: chunkCall < 2 ? 'Continue' : 'Success',
-          imageinfo: { url: 'https://commons.wikimedia.org/test.jpg' },
+          imageinfo: {
+            url: 'https://upload.wikimedia.org/wikipedia/commons/t/te/test.jpg',
+            descriptionurl: 'https://commons.wikimedia.org/wiki/File:test.jpg',
+          },
         },
       }
     })
@@ -178,6 +184,43 @@ describe('MediaWikiClient.uploadFile chunked upload', () => {
     expect(capturedFormDatas[0]!.get('filekey')).toBeNull()
     // chunk 2: must carry the filekey returned by chunk 1
     expect(capturedFormDatas[1]!.get('filekey')).toBe('stash-key-1')
+  })
+})
+
+describe('MediaWikiClient.uploadFile return value', () => {
+  it('returns descriptionurl (file page URL) not url (raw image CDN URL)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      upload: {
+        filekey: 'stash-key',
+        result: 'Success',
+        imageinfo: {
+          url: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Photo.jpg',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:Photo.jpg',
+        },
+      },
+    }))
+    globalThis.fetch = mock(
+      async () => new Response(Buffer.from('tiny'), { status: 200 }),
+    ) as unknown as typeof fetch
+
+    const { redis } = makeRedisMock()
+    const result = await client.uploadFile(
+      'Photo.jpg',
+      'https://cdn.example/Photo.jpg',
+      'wikitext',
+      'summary',
+      redis,
+      1,
+      1,
+    )
+
+    expect(result).toBe('https://commons.wikimedia.org/wiki/File:Photo.jpg')
+    expect(result).not.toContain('upload.wikimedia.org')
   })
 })
 
