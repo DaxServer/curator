@@ -293,7 +293,7 @@ export class MediaWikiClient {
       const upload = commitResult.upload as Record<string, unknown>
       const imageinfo = upload.imageinfo as Record<string, string>
       await redis.del(lockKey)
-      return imageinfo.url!
+      return imageinfo.descriptionurl!
     } catch (err) {
       await redis.del(lockKey)
       throw err

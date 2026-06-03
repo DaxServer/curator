@@ -277,7 +277,7 @@ describe('mergeSdcStatements', () => {
       (updatedCreator as { qualifiers?: Record<string, unknown[]> }).qualifiers ?? {}
 
     expect(Object.keys(mergedQuals)).toContain('P13988')
-    expect(mergedQuals['P2093']).toHaveLength(1)
+    expect(mergedQuals.P2093).toHaveLength(1)
   })
 
   it('preserves existing qualifiers absent from the new statement', () => {
@@ -416,7 +416,7 @@ describe('computeLabelsDelta', () => {
     const delta = computeLabelsDelta(existing, newLabels)
     expect(delta).not.toBeNull()
     expect(Object.keys(delta!)).not.toContain('en')
-    expect(delta!['fr']?.value).toBe('New French title')
-    expect(delta!['de']?.value).toBe('Neues Bild')
+    expect(delta!.fr?.value).toBe('New French title')
+    expect(delta!.de?.value).toBe('Neues Bild')
   })
 })
