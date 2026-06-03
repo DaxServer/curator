@@ -379,9 +379,7 @@ export class Handler {
   }
 
   private async fetchImagesInBatches(collection: string, handler: MapillaryHandler): Promise<void> {
-    logger.warn(
-      `[mapillary] Attempting batch retrieval for ${collection} for ${this.username}`,
-    )
+    logger.warn(`[mapillary] Attempting batch retrieval for ${collection} for ${this.username}`)
     this.sender.send({
       type: 'TRY_BATCH_RETRIEVAL',
       data: 'Large collection detected. Loading in batches...',
@@ -546,9 +544,7 @@ export class Handler {
       const results = await Promise.all(titles.map((t) => mw.isCategoryDeleted(t)))
       const deleted = titles.filter((_, i) => results[i])
       if (deleted.length > 0) {
-        logger.info(
-          `[ws] [resp] Categories ${deleted.join(', ')} are deleted for ${this.username}`,
-        )
+        logger.info(`[ws] [resp] Categories ${deleted.join(', ')} are deleted for ${this.username}`)
         this.sender.send({
           type: 'CATEGORIES_DELETED_RESPONSE',
           data: { deleted },

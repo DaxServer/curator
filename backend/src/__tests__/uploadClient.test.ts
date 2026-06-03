@@ -133,6 +133,122 @@ describe('MediaWikiClient.uploadFile error paths', () => {
   })
 })
 
+describe('MediaWikiClient.uploadFile chunked upload', () => {
+  it('sends filekey on chunks after the first', async () => {
+    const CHUNK_SIZE = 1024 * 1024
+    const client = new MediaWikiClient(['key', 'secret'])
+
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+
+    const capturedFormDatas: FormData[] = []
+    let chunkCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async (fd: FormData) => {
+      capturedFormDatas.push(fd)
+      chunkCall++
+      return {
+        upload: {
+          filekey: `stash-key-${chunkCall}`,
+          result: chunkCall < 2 ? 'Continue' : 'Success',
+          imageinfo: { url: 'https://commons.wikimedia.org/test.jpg' },
+        },
+      }
+    })
+
+    // 2 MB buffer → 2 chunks
+    const twoMbBuffer = Buffer.alloc(CHUNK_SIZE * 2)
+    globalThis.fetch = mock(
+      async () => new Response(twoMbBuffer, { status: 200 }),
+    ) as unknown as typeof fetch
+
+    const { redis } = makeRedisMock()
+    await client.uploadFile(
+      'test.jpg',
+      'https://cdn.example/test.jpg',
+      'wikitext',
+      'summary',
+      redis,
+      1,
+      1,
+    )
+
+    // chunk 1: no filekey (offset=0)
+    expect(capturedFormDatas[0]!.get('filekey')).toBeNull()
+    // chunk 2: must carry the filekey returned by chunk 1
+    expect(capturedFormDatas[1]!.get('filekey')).toBe('stash-key-1')
+  })
+})
+
+describe('MediaWikiClient.findDuplicates', () => {
+  it('returns descriptionurl (wiki page URL) not url (CDN URL)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    mockFetch({
+      query: {
+        allimages: [
+          {
+            title: 'File:Photo.jpg',
+            url: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Photo.jpg',
+            descriptionurl: 'https://commons.wikimedia.org/wiki/File:Photo.jpg',
+          },
+        ],
+      },
+    })
+    const dupes = await client.findDuplicates('abc123')
+    expect(dupes[0]!.url).toBe('https://commons.wikimedia.org/wiki/File:Photo.jpg')
+    expect(dupes[0]!.url).not.toContain('upload.wikimedia.org')
+  })
+})
+
+describe('MediaWikiClient.uploadFile commit-time duplicate', () => {
+  it('includes wiki page URL in duplicate links from commit warnings', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      upload: {
+        filekey: 'stash-key',
+        result: 'Warning',
+        warnings: { duplicate: ['Photo from Mapillary 2017-06-24 (168951548443095).jpg'] },
+      },
+    }))
+
+    globalThis.fetch = mock(
+      async () => new Response(Buffer.from('tiny'), { status: 200 }),
+    ) as unknown as typeof fetch
+
+    const { redis } = makeRedisMock()
+    let caught: unknown
+    try {
+      await client.uploadFile(
+        'test.jpg',
+        'https://cdn.example/test.jpg',
+        'wikitext',
+        'summary',
+        redis,
+        1,
+        1,
+      )
+    } catch (e) {
+      caught = e
+    }
+
+    expect(caught).toBeInstanceOf(DuplicateUploadError)
+    const err = caught as DuplicateUploadError
+    // spaces → underscores, parentheses → %28/%29, colon → %3A
+    expect(err.duplicates[0]!.url).toBe(
+      'https://commons.wikimedia.org/wiki/File%3APhoto_from_Mapillary_2017-06-24_%28168951548443095%29.jpg',
+    )
+    expect(err.duplicates[0]!.url).not.toBe('')
+    expect(err.duplicates[0]!.url).toContain('%28')
+    expect(err.duplicates[0]!.url).toContain('%29')
+  })
+})
+
 describe('MediaWikiClient.isCategoryDeleted', () => {
   it('returns true when logevents are present', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
@@ -172,15 +288,23 @@ describe('MediaWikiClient.findDuplicates', () => {
     expect(await client.findDuplicates('abc123')).toEqual([])
   })
 
-  it('returns duplicate titles and urls', async () => {
+  it('returns duplicate titles and descriptionurl (wiki page URL)', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     mockFetch({
-      query: { allimages: [{ title: 'File:Dup.jpg', url: 'https://commons.example/Dup.jpg' }] },
+      query: {
+        allimages: [
+          {
+            title: 'File:Dup.jpg',
+            url: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Dup.jpg',
+            descriptionurl: 'https://commons.wikimedia.org/wiki/File:Dup.jpg',
+          },
+        ],
+      },
     })
     const dupes = await client.findDuplicates('abc123')
     expect(dupes).toHaveLength(1)
     expect(dupes[0]!.title).toBe('File:Dup.jpg')
-    expect(dupes[0]!.url).toBe('https://commons.example/Dup.jpg')
+    expect(dupes[0]!.url).toBe('https://commons.wikimedia.org/wiki/File:Dup.jpg')
   })
 })
 

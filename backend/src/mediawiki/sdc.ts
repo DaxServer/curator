@@ -36,7 +36,7 @@ function stringSnak(property: string, value: string): unknown {
 }
 
 function externalIdSnak(property: string, value: string): unknown {
-  return { snaktype: 'value', property, datavalue: { value, type: 'external-id' } }
+  return { snaktype: 'value', property, datavalue: { value, type: 'string' } }
 }
 
 function someValueSnak(property: string): unknown {

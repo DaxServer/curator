@@ -178,7 +178,7 @@ export class MediaWikiClient {
     })
     const allimages =
       ((result.query as Record<string, unknown>).allimages as Array<Record<string, string>>) ?? []
-    return allimages.map((img) => ({ title: img.title!, url: img.url! }))
+    return allimages.map((img) => ({ title: img.title!, url: img.descriptionurl! }))
   }
 
   async uploadFile(
@@ -229,6 +229,7 @@ export class MediaWikiClient {
         formData.append('text', wikitext)
         formData.append('comment', editSummary)
         formData.append('token', token)
+        if (stashKey) formData.append('filekey', stashKey)
         formData.append('chunk', new Blob([chunk]), filename)
 
         const result = await this.apiUploadChunk(formData)
@@ -276,7 +277,10 @@ export class MediaWikiClient {
         }
         const warnings = upload.warnings as Record<string, unknown> | undefined
         if (warnings?.duplicate) {
-          const dupes = (warnings.duplicate as string[]).map((t) => ({ title: t, url: '' }))
+          const dupes = (warnings.duplicate as string[]).map((t) => ({
+            title: t,
+            url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(`File:${t}`).replace(/%20/g, '_').replace(/\(/g, '%28').replace(/\)/g, '%29')}`,
+          }))
           throw new DuplicateUploadError(
             dupes,
             `Duplicate detected during commit (uploadId=${uploadId})`,

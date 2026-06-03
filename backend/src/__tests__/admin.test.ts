@@ -276,7 +276,11 @@ describe('POST /api/admin/retry', () => {
       }),
     )
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { new_batch_id: number; retried_count: number; enqueued_count: number }
+    const body = (await res.json()) as {
+      new_batch_id: number
+      retried_count: number
+      enqueued_count: number
+    }
     expect(body.new_batch_id).toBe(5)
     expect(body.retried_count).toBe(1)
     expect(body.enqueued_count).toBe(1)
