@@ -1,6 +1,6 @@
 import { config } from '@backend/config'
 import { reverseGeocodeBatch } from '@backend/core/geocoding'
-import { mapillaryLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import { WIKIDATA_PROPERTY } from '@backend/mediawiki/sdc'
 import type { ExistingPage, MediaImage } from '@backend/types/ws'
 
@@ -138,7 +138,7 @@ export async function fetchExistingPages(
 ): Promise<Record<string, ExistingPage[]>> {
   const numericIds = imageIds.filter((id) => /^\d+$/.test(id))
   if (numericIds.length < imageIds.length) {
-    mapillaryLogger.warn(
+    logger.warn(
       { skipped: imageIds.length - numericIds.length },
       'Skipping non-numeric Mapillary IDs in SPARQL query',
     )
@@ -156,7 +156,7 @@ export async function fetchExistingPages(
   const cookieJar: Record<string, string> = { wcqsOauth: config.wcqsOauthToken }
   let url = 'https://commons-query.wikimedia.org/sparql'
 
-  mapillaryLogger.debug({ imageCount: imageIds.length, url }, 'WCQS query start')
+  logger.debug({ imageCount: imageIds.length, url }, 'WCQS query start')
 
   const request = () =>
     fetch(url, {
@@ -174,12 +174,12 @@ export async function fetchExistingPages(
     })
 
   let res = await request()
-  mapillaryLogger.debug({ status: res.status, url }, 'WCQS initial response')
+  logger.debug({ status: res.status, url }, 'WCQS initial response')
 
   if (res.status >= 300 && res.status < 400) {
     const location = res.headers.get('location')
     const setCookies = res.headers.getSetCookie()
-    mapillaryLogger.debug({ status: res.status, location, setCookies }, 'WCQS redirect')
+    logger.debug({ status: res.status, location, setCookies }, 'WCQS redirect')
     if (location) {
       for (const c of setCookies) {
         const nameValue = c.slice(0, c.indexOf(';') < 0 ? c.length : c.indexOf(';')).trim()
@@ -188,13 +188,13 @@ export async function fetchExistingPages(
       }
       url = new URL(location, url).toString()
       res = await request()
-      mapillaryLogger.debug({ status: res.status, url }, 'WCQS post-redirect response')
+      logger.debug({ status: res.status, url }, 'WCQS post-redirect response')
     }
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '(unreadable)')
-    mapillaryLogger.error({ status: res.status, url, body }, 'WCQS SPARQL error')
+    logger.error({ status: res.status, url, body }, 'WCQS SPARQL error')
     throw new Error(`WCQS SPARQL error: ${res.status}`)
   }
 
@@ -203,7 +203,7 @@ export async function fetchExistingPages(
   }
 
   const matchCount = data.results.bindings.length
-  mapillaryLogger.debug({ imageCount: imageIds.length, matchCount }, 'WCQS query complete')
+  logger.debug({ imageCount: imageIds.length, matchCount }, 'WCQS query complete')
 
   const existing: Record<string, ExistingPage[]> = {}
   for (const binding of data.results.bindings) {

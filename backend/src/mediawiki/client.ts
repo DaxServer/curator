@@ -7,7 +7,7 @@ import {
   StorageError,
 } from '@backend/core/errors'
 import { buildAuthHeader } from '@backend/core/oauthClient'
-import { mwLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import type { Redis } from 'ioredis'
 import { createHash } from 'node:crypto'
 
@@ -105,7 +105,7 @@ export class MediaWikiClient {
         >) ?? []
       for (const m of members) titles.push(m.title!)
       if (!result.continue) {
-        mwLogger.info(`Retrieved ${titles.length} file titles in [[Category:${category}]]`)
+        logger.info(`Retrieved ${titles.length} file titles in [[Category:${category}]]`)
         break
       }
       params = {
@@ -199,7 +199,7 @@ export class MediaWikiClient {
     const buffer = Buffer.from(await downloadRes.arrayBuffer())
     const sha1 = createHash('sha1').update(buffer).digest('hex')
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
-    mwLogger.info(`Uploading ${filename} (${buffer.length} bytes) in ${totalChunks} chunks`)
+    logger.info(`Uploading ${filename} (${buffer.length} bytes) in ${totalChunks} chunks`)
 
     const duplicates = await this.findDuplicates(sha1)
     if (duplicates.length > 0) {
@@ -241,10 +241,10 @@ export class MediaWikiClient {
         const upload = result.upload as Record<string, unknown>
         stashKey = upload.filekey as string
         const chunkNum = offset / CHUNK_SIZE + 1
-        mwLogger.info(`Uploaded chunk ${chunkNum}/${totalChunks} filekey: ${stashKey}`)
+        logger.info(`Uploaded chunk ${chunkNum}/${totalChunks} filekey: ${stashKey}`)
       }
 
-      mwLogger.info(`Final commit for ${filename} with filekey ${stashKey}`)
+      logger.info(`Final commit for ${filename} with filekey ${stashKey}`)
       let commitResult: Record<string, unknown> | null = null
       for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
         const formData = new FormData()
@@ -259,7 +259,7 @@ export class MediaWikiClient {
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
           if (errorObj.code === 'uploadstash-file-not-found' && attempt < STASH_RETRY_LIMIT) {
-            mwLogger.warn(
+            logger.warn(
               `uploadstash-file-not-found on attempt ${attempt + 1}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
             )
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
@@ -313,7 +313,7 @@ export class MediaWikiClient {
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
-    mwLogger.info(`SDC applied to ${filename}`)
+    logger.info(`SDC applied to ${filename}`)
   }
 
   async nullEdit(filename: string): Promise<void> {
@@ -338,7 +338,7 @@ export class MediaWikiClient {
       bot: '0',
       token,
     })
-    mwLogger.info(`Null edit performed on ${filename}`)
+    logger.info(`Null edit performed on ${filename}`)
   }
 
   async fetchSdc(
@@ -399,7 +399,7 @@ export class MediaWikiClient {
       token,
     })
     if (editResult.error) return false
-    mwLogger.info(
+    logger.info(
       `Recategorized ${title} from [[Category:${sourceNormalized}]] to [[Category:${targetNormalized}]]`,
     )
     return true

@@ -1,5 +1,5 @@
 import type { BatchService, BatchItem as DalBatchItem } from '@backend/db/dal/batches'
-import { wsLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import type { BatchItem, ServerMessage } from '@backend/types/ws'
 
 export const STREAM_INTERVAL_MS = 2000
@@ -32,7 +32,7 @@ export class OptimizedBatchStreamer {
     page: number,
     limit: number,
   ): Promise<void> {
-    wsLogger.info(
+    logger.info(
       `[ws] [resp] Starting optimized batch streaming for ${this.username} (page: ${page}, limit: ${limit})`,
     )
     const offset = (page - 1) * limit
@@ -49,7 +49,7 @@ export class OptimizedBatchStreamer {
     this.lastUpdateTime = await this.batches.getLatestUpdateTime({ userid, filterText })
 
     if (page > 1) {
-      wsLogger.info(
+      logger.info(
         `[ws] [resp] Pagination detected (page ${page}), not streaming updates for ${this.username}`,
       )
       return
@@ -68,7 +68,7 @@ export class OptimizedBatchStreamer {
             const changed = await this.batches.getBatchesMinimal(changedIds)
             if (changed.length > 0) {
               const newTotal = await this.batches.countBatches({ filterText, userid })
-              wsLogger.info(
+              logger.info(
                 `[ws] [resp] Updates detected for ${this.username}, sending incremental update`,
               )
               this.sender.send({
@@ -82,7 +82,7 @@ export class OptimizedBatchStreamer {
           this.lastUpdateTime = current
         }
       } catch (e) {
-        wsLogger.error({ username: this.username, err: e }, 'Streaming error')
+        logger.error({ username: this.username, err: e }, 'Streaming error')
       }
       if (this.interval !== null) {
         this.interval = setTimeout(poll, STREAM_INTERVAL_MS)
@@ -93,7 +93,7 @@ export class OptimizedBatchStreamer {
 
   stopStreaming(): void {
     if (this.interval) {
-      wsLogger.info(`[ws] [resp] Stopping optimized batch streaming for ${this.username}`)
+      logger.info(`[ws] [resp] Stopping optimized batch streaming for ${this.username}`)
       clearTimeout(this.interval)
       this.interval = null
     }

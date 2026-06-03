@@ -9,7 +9,7 @@ import {
 import { lazyDb } from '@backend/db/client'
 import { UploadService } from '@backend/db/dal/uploads'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
-import { workerLogger } from '@backend/logger'
+import { logger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
 import { buildStatementsFromMapillaryImage } from '@backend/mediawiki/sdc'
 import type { UploadJobData } from '@backend/workers/queue'
@@ -26,11 +26,11 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
     'uploads',
     async (job) => {
       const { uploadId, batchId, editGroupId } = job.data
-      workerLogger.info(`[worker] [${uploadId}] [${job.id}] task started`)
+      logger.info(`[worker] [${uploadId}] [${job.id}] task started`)
 
       const upload = await uploads.getUploadById(uploadId)
       if (!upload) {
-        workerLogger.error({ uploadId }, 'Upload not found, skipping')
+        logger.error({ uploadId }, 'Upload not found, skipping')
         return
       }
 
@@ -59,7 +59,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
 
       const { blacklisted, reason } = await mw.checkTitleBlacklisted(upload.filename)
       if (blacklisted) {
-        workerLogger.warn(
+        logger.warn(
           `[worker] [${uploadId}/${batchId}] title ${upload.filename} is blacklisted: ${reason}`,
         )
         await uploads.updateUploadStatus(uploadId, 'failed', {
@@ -101,13 +101,13 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         await mw.applySdc(upload.filename, claims, labelsPayload, summary)
         await mw.nullEdit(upload.filename)
 
-        workerLogger.info(`[worker] [${uploadId}/${batchId}] successfully uploaded to ${fileUrl}`)
+        logger.info(`[worker] [${uploadId}/${batchId}] successfully uploaded to ${fileUrl}`)
         await uploads.updateUploadStatus(uploadId, 'completed', null, fileUrl)
         await uploads.clearUploadAccessToken(uploadId)
-        workerLogger.info(`[worker] [${uploadId}] [${job.id}] task completed`)
+        logger.info(`[worker] [${uploadId}] [${job.id}] task completed`)
       } catch (err) {
         if (err instanceof DuplicateUploadError) {
-          workerLogger.info(`[worker] [${uploadId}/${batchId}] duplicate upload detected`)
+          logger.info(`[worker] [${uploadId}/${batchId}] duplicate upload detected`)
           const links = err.duplicates
 
           if (links.length > 0) {
@@ -153,6 +153,7 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
         }
 
         const message = err instanceof Error ? err.message : 'Unknown error'
+        logger.error({ uploadId, batchId, err }, `Upload failed: ${message}`)
         await uploads.updateUploadStatus(uploadId, 'failed', { type: 'error', message })
         await uploads.clearUploadAccessToken(uploadId)
       }
@@ -165,14 +166,14 @@ export function createUploadWorker(redis: Redis): Worker<UploadJobData> {
   )
 
   worker.on('failed', async (job, err) => {
-    workerLogger.error({ jobId: job?.id, err }, 'Job permanently failed')
+    logger.error({ jobId: job?.id, err }, 'Job permanently failed')
     if (job) {
       try {
         const message = err instanceof Error ? err.message : 'Unknown error'
         await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
         await uploads.clearUploadAccessToken(job.data.uploadId)
       } catch (dbErr) {
-        workerLogger.error(
+        logger.error(
           { jobId: job.id, err: dbErr },
           'Failed to update database status for failed job',
         )
