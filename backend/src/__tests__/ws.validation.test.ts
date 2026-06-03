@@ -1,6 +1,6 @@
 import { sessionPlugin, type SessionStore } from '@backend/core/session'
 import { ClientMessage } from '@backend/types/ws'
-import { afterAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 
 // ============================================================
@@ -58,24 +58,41 @@ const app = new Elysia()
 
 const PORT = app.server!.port
 
-afterAll(() => app.stop(true))
+let sharedWs: WebSocket
 
-async function wsConnect(): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
+beforeAll(async () => {
+  sharedWs = await new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(`ws://localhost:${PORT}/ws`, {
       headers: { cookie: `session_id=${SESSION_ID}` },
     } as unknown as string[])
-    ws.addEventListener('open', () => resolve(ws))
-    ws.addEventListener('error', reject)
+    ws.addEventListener('open', () => resolve(ws), { once: true })
+    ws.addEventListener('error', reject, { once: true })
   })
-}
+})
 
-async function wsSendAndCollect(ws: WebSocket, msg: unknown, waitMs = 150): Promise<string[]> {
-  const received: string[] = []
-  ws.addEventListener('message', (e) => received.push(e.data as string))
-  ws.send(JSON.stringify(msg))
-  await Bun.sleep(waitMs)
-  return received
+afterAll(() => {
+  sharedWs?.close()
+  app.stop(true)
+})
+
+async function wsSendAndCollect(msg: unknown, timeoutMs = 1000): Promise<string[]> {
+  return new Promise((resolve) => {
+    const received: string[] = []
+
+    const handler = (e: MessageEvent) => {
+      received.push(e.data as string)
+      clearTimeout(timer)
+      resolve(received)
+    }
+
+    const timer = setTimeout(() => {
+      sharedWs.removeEventListener('message', handler)
+      resolve(received)
+    }, timeoutMs)
+
+    sharedWs.addEventListener('message', handler, { once: true })
+    sharedWs.send(JSON.stringify(msg))
+  })
 }
 
 // ============================================================
@@ -84,9 +101,7 @@ async function wsSendAndCollect(ws: WebSocket, msg: unknown, waitMs = 150): Prom
 // ============================================================
 describe('guard: invalid message triggers body validation error', () => {
   it('unknown type causes Elysia to send back a validation error JSON', async () => {
-    const ws = await wsConnect()
-    const msgs = await wsSendAndCollect(ws, { type: 'UNKNOWN_TYPE', data: {} })
-    ws.close()
+    const msgs = await wsSendAndCollect({ type: 'UNKNOWN_TYPE', data: {} })
 
     expect(msgs.length).toBeGreaterThan(0)
     const parsed = JSON.parse(msgs[0]!) as Record<string, unknown>
@@ -100,12 +115,10 @@ describe('guard: invalid message triggers body validation error', () => {
 // ============================================================
 describe('FETCH_PRESETS body validation', () => {
   it('passes with mapillary handler', async () => {
-    const ws = await wsConnect()
-    const msgs = await wsSendAndCollect(ws, {
+    const msgs = await wsSendAndCollect({
       type: 'FETCH_PRESETS',
       data: { handler: 'mapillary' },
     })
-    ws.close()
 
     const received = msgs.map((m) => {
       try {
@@ -120,13 +133,11 @@ describe('FETCH_PRESETS body validation', () => {
 
 describe('FETCH_IMAGES body validation', () => {
   it('passes with empty string data (store.input default)', async () => {
-    const ws = await wsConnect()
-    const msgs = await wsSendAndCollect(ws, {
+    const msgs = await wsSendAndCollect({
       type: 'FETCH_IMAGES',
       data: '',
       handler: 'mapillary',
     })
-    ws.close()
 
     const received = msgs.map((m) => {
       try {
@@ -139,13 +150,11 @@ describe('FETCH_IMAGES body validation', () => {
   })
 
   it('passes with a non-empty sequence id', async () => {
-    const ws = await wsConnect()
-    const msgs = await wsSendAndCollect(ws, {
+    const msgs = await wsSendAndCollect({
       type: 'FETCH_IMAGES',
       data: 'LqNt2V0eQ2ClmDPEVHGqLg',
       handler: 'mapillary',
     })
-    ws.close()
 
     const received = msgs.map((m) => {
       try {
