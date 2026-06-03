@@ -64,7 +64,6 @@ openssl rand -base64 32
 | `X_USERNAME` | `DaxServer` | X (Twitter) username for syndication |
 | `X_API_KEY` | — | X API key |
 | `ENABLE_MAINTENANCE` | — | Set to `true` to enable maintenance mode |
-| `TOOL_DATA_DIR` | — | Tool data directory path |
 | `LOG_LEVEL` | — | Pino log level |
 
 ### Webservice

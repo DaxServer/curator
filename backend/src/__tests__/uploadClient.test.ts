@@ -71,6 +71,18 @@ describe('MediaWikiClient.uploadFile hash lock TTL', () => {
 })
 
 describe('MediaWikiClient.uploadFile error paths', () => {
+  it('throws SourceCdnError when source CDN resets the connection (ECONNRESET)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const err = Object.assign(new Error('The socket connection was closed unexpectedly'), {
+      code: 'ECONNRESET',
+    })
+    globalThis.fetch = mock(async () => { throw err }) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    await expect(
+      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
+    ).rejects.toBeInstanceOf(SourceCdnError)
+  })
+
   it('throws SourceCdnError when source URL returns 5xx', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     mockFetch({}, 503)

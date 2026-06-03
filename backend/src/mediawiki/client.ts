@@ -190,7 +190,15 @@ export class MediaWikiClient {
     uploadId: number,
     batchId: number,
   ): Promise<string> {
-    const downloadRes = await fetch(fileUrl, { headers: { 'User-Agent': config.userAgent } })
+    let downloadRes: Response
+    try {
+      downloadRes = await fetch(fileUrl, { headers: { 'User-Agent': config.userAgent } })
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED')
+        throw new SourceCdnError(`Source CDN network error (${code})`)
+      throw err
+    }
     if (!downloadRes.ok) {
       if (downloadRes.status >= 500)
         throw new SourceCdnError(`Source CDN error: ${downloadRes.status}`)
