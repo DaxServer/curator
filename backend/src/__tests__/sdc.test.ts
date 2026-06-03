@@ -19,7 +19,35 @@ const baseImage: MediaImage = {
   existing: [],
 }
 
-type AnyClaim = { mainsnak: { datavalue?: { value?: { time?: string } } } }
+type AnyClaim = {
+  mainsnak: {
+    property?: string
+    datavalue?: { value?: { time?: string } & Record<string, unknown>; type?: string }
+  }
+  qualifiers?: Record<string, { datavalue?: { type?: string } }[]>
+}
+
+describe('buildStatementsFromMapillaryImage / externalIdSnak', () => {
+  it('uses datavalue type "string" not "external-id" (wbeditentity rejects external-id)', () => {
+    const claims = buildStatementsFromMapillaryImage(baseImage, false) as AnyClaim[]
+    const externalIdClaims = claims.filter((c) => c.mainsnak?.datavalue?.type !== undefined)
+    for (const claim of externalIdClaims) {
+      expect(claim.mainsnak.datavalue!.type).not.toBe('external-id')
+    }
+    // MapillaryPhotoID claim must be type string
+    const photoIdClaim = claims.find((c) => c.mainsnak?.property === 'P1947')
+    expect(photoIdClaim?.mainsnak?.datavalue?.type).toBe('string')
+  })
+
+  it('qualifiers with external-id snaks also use type "string"', () => {
+    const claims = buildStatementsFromMapillaryImage(baseImage, false) as AnyClaim[]
+    const creatorClaim = claims.find((c) => c.mainsnak?.property === 'P170')
+    const qualifierSnaks = Object.values(creatorClaim?.qualifiers ?? {}).flat()
+    for (const snak of qualifierSnaks) {
+      if (snak.datavalue) expect(snak.datavalue.type).not.toBe('external-id')
+    }
+  })
+})
 
 describe('buildStatementsFromMapillaryImage / timeSnak', () => {
   it('produces the correct Wikidata time string for a Z-suffix date', () => {

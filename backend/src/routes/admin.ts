@@ -195,12 +195,13 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
         return { message: 'No access token in session' }
       }
       const encryptedToken = encryptAccessToken(tokenPair)
-      const { newUploadIds, editGroupId, newBatchId } = await uploads.retrySelectedUploadsToNewBatch(
-        body.upload_ids,
-        encryptedToken,
-        session.user!.sub,
-        session.user!.username,
-      )
+      const { newUploadIds, editGroupId, newBatchId } =
+        await uploads.retrySelectedUploadsToNewBatch(
+          body.upload_ids,
+          encryptedToken,
+          session.user!.sub,
+          session.user!.username,
+        )
       let enqueuedCount = 0
       if (newUploadIds.length > 0 && editGroupId) {
         const results = await Promise.allSettled(
