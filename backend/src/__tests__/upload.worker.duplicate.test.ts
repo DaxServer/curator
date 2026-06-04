@@ -275,6 +275,40 @@ describe('upload worker — duplicate path: nullEdit called after applySdc on du
   })
 })
 
+describe('upload worker — nullEdit failure does not shadow a successful write', () => {
+  it('still marks duplicated_sdc_updated when nullEdit throws after applySdc succeeds', async () => {
+    const stub = makeClientStub({
+      fetchSdc: async () => null,
+      nullEdit: async () => {
+        throw new Error('null edit network error')
+      },
+    })
+    setupWorker(stub)
+
+    await capturedProcessor!(makeJob())
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      1,
+      'duplicated_sdc_updated',
+      expect.objectContaining({ type: 'duplicated_sdc_updated' }),
+    )
+  })
+
+  it('still marks completed when nullEdit throws after a successful new upload', async () => {
+    const stub = makeClientStub({
+      uploadFile: async () => 'https://commons.wikimedia.org/wiki/File:Test_photo.jpg',
+      nullEdit: async () => {
+        throw new Error('null edit network error')
+      },
+    })
+    setupWorker(stub)
+
+    await capturedProcessor!(makeJob())
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'completed', null, expect.any(String))
+  })
+})
+
 describe('upload worker — duplicate path: label delta respected', () => {
   it('calls applySdc with labelsDelta when label is absent from existing SDC', async () => {
     const newClaims = buildStatementsFromMapillaryImage(FAKE_IMAGE, true)
