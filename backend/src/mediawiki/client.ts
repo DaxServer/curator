@@ -330,28 +330,42 @@ export class MediaWikiClient {
   }
 
   async nullEdit(filename: string): Promise<void> {
-    const pageResult = await this.apiRequest({
-      action: 'query',
-      prop: 'revisions',
-      rvprop: 'content',
-      rvslots: 'main',
-      titles: `File:${filename}`,
-    })
-    const pages = (pageResult.query as Record<string, unknown>).pages as Record<string, unknown>
-    const page = Object.values(pages)[0] as Record<string, unknown>
-    const revisions = (page.revisions as Array<Record<string, unknown>>) ?? []
-    const slots = (revisions[0]?.slots as Record<string, unknown>) ?? {}
-    const mainSlot = (slots.main as Record<string, unknown>) ?? {}
-    const content = (mainSlot.content as string) ?? ''
-    const token = await this.getCsrfToken()
-    await this.apiRequest({ action: 'edit' }, 'POST', {
-      title: `File:${filename}`,
-      text: content,
-      summary: 'null edit',
-      bot: '0',
-      token,
-    })
-    logger.info(`Null edit performed on ${filename}`)
+    for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
+      try {
+        const pageResult = await this.apiRequest({
+          action: 'query',
+          prop: 'revisions',
+          rvprop: 'content',
+          rvslots: 'main',
+          titles: `File:${filename}`,
+        })
+        const pages = (pageResult.query as Record<string, unknown>).pages as Record<string, unknown>
+        const page = Object.values(pages)[0] as Record<string, unknown>
+        const revisions = (page.revisions as Array<Record<string, unknown>>) ?? []
+        const slots = (revisions[0]?.slots as Record<string, unknown>) ?? {}
+        const mainSlot = (slots.main as Record<string, unknown>) ?? {}
+        const content = (mainSlot.content as string) ?? ''
+        const token = await this.getCsrfToken()
+        await this.apiRequest({ action: 'edit' }, 'POST', {
+          title: `File:${filename}`,
+          text: content,
+          summary: 'null edit',
+          bot: '0',
+          token,
+        })
+        logger.info(`Null edit performed on ${filename}`)
+        return
+      } catch (err) {
+        if (attempt < STASH_RETRY_LIMIT) {
+          logger.warn(
+            `nullEdit attempt ${attempt + 1} failed for ${filename}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
+          )
+          await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
+        } else {
+          throw err
+        }
+      }
+    }
   }
 
   async fetchSdc(

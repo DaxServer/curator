@@ -117,9 +117,11 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         await uploads.updateUploadStatus(uploadId, 'completed', null, fileUrl)
         await uploads.clearUploadAccessToken(uploadId)
         logger.info(`[worker] [${uploadId}] [${job.id}] task completed`)
-        mw.nullEdit(upload.filename).catch((e) =>
-          logger.warn({ uploadId, err: e }, 'Null edit failed after upload'),
-        )
+        try {
+          await mw.nullEdit(upload.filename)
+        } catch (e) {
+          logger.warn({ uploadId, err: e }, 'Null edit failed after upload')
+        }
       } catch (err) {
         if (err instanceof DuplicateUploadError) {
           logger.info(`[worker] [${uploadId}/${batchId}] duplicate upload detected`)
@@ -161,9 +163,11 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                   links,
                   message: 'File already exists on Commons. SDC updated.',
                 })
-                mw.nullEdit(dupeFilename).catch((e) =>
-                  logger.warn({ uploadId, err: e }, 'Null edit failed after duplicate SDC update'),
-                )
+                try {
+                  await mw.nullEdit(dupeFilename)
+                } catch (e) {
+                  logger.warn({ uploadId, err: e }, 'Null edit failed after duplicate SDC update')
+                }
               } catch {
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                   type: 'duplicated_sdc_not_updated',

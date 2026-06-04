@@ -309,6 +309,40 @@ describe('upload worker — nullEdit failure does not shadow a successful write'
   })
 })
 
+describe('upload worker — nullEdit is awaited before processor resolves', () => {
+  it('processor waits for nullEdit to complete on successful new upload', async () => {
+    let nullEditCompleted = false
+    const stub = makeClientStub({
+      uploadFile: async () => 'https://commons.wikimedia.org/wiki/File:Test_photo.jpg',
+      nullEdit: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        nullEditCompleted = true
+      },
+    })
+    setupWorker(stub)
+
+    await capturedProcessor!(makeJob())
+
+    expect(nullEditCompleted).toBe(true)
+  })
+
+  it('processor waits for nullEdit to complete on duplicate SDC update', async () => {
+    let nullEditCompleted = false
+    const stub = makeClientStub({
+      fetchSdc: async () => null,
+      nullEdit: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        nullEditCompleted = true
+      },
+    })
+    setupWorker(stub)
+
+    await capturedProcessor!(makeJob())
+
+    expect(nullEditCompleted).toBe(true)
+  })
+})
+
 describe('upload worker — duplicate path: label delta respected', () => {
   it('calls applySdc with labelsDelta when label is absent from existing SDC', async () => {
     const newClaims = buildStatementsFromMapillaryImage(FAKE_IMAGE, true)
