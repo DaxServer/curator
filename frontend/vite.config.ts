@@ -102,6 +102,19 @@ export default defineConfig((): import('vite').UserConfig => {
         },
       },
     },
+    build: {
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              { name: 'vendor-maplibre', test: /node_modules\/maplibre-gl/ },
+              { name: 'vendor-primevue', test: /node_modules\/(primevue|@primevue|@primeuix)/ },
+              { name: 'vendor', test: /node_modules/ },
+            ],
+          },
+        },
+      },
+    },
     resolve: {
       tsconfigPaths: true,
     },
