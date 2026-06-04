@@ -63,7 +63,7 @@
   "scripts": {
     "dev": "concurrently --pad-prefix --names backend,frontend --prefix-colors cyan,magenta \"bun --cwd backend dev\" \"bun --cwd frontend dev\"",
     "worker": "bun --cwd backend worker",
-    "build": "bun --filter @curator/backend build",
+    "build": "bun --filter @curator/frontend build && bun --filter @curator/backend build",
     "test": "bun test",
     "typecheck": "bun --filter '*' typecheck",
     "lint": "bun --filter '*' lint",

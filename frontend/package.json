@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && bun scripts/compress-assets.ts",
     "typecheck": "vue-tsc",
     "lint": "biome lint .",
     "format": "prettier --cache --log-level warn --write src"

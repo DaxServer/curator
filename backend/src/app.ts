@@ -1,4 +1,5 @@
 import { devAuthPlugin } from '@backend/core/devAuth'
+import { serveStaticFiles } from '@backend/core/staticFiles'
 import { embeddedFiles } from '@backend/embedded-frontend'
 import { logger } from '@backend/logger'
 import { adminRoutes } from '@backend/routes/admin'
@@ -21,11 +22,4 @@ const base = new Elysia({ cookie: { httpOnly: true, sameSite: 'lax', path: '/' }
 export type App = typeof base
 
 export const app =
-  indexHtml !== undefined
-    ? base
-        .get('/', () => Bun.file(indexHtml))
-        .get('/*', ({ request }) => {
-          const { pathname } = new URL(request.url)
-          return Bun.file(embeddedFiles[pathname] ?? indexHtml)
-        })
-    : base
+  indexHtml !== undefined ? base.use(serveStaticFiles(embeddedFiles, indexHtml)) : base
