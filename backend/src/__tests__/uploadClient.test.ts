@@ -576,6 +576,56 @@ describe('MediaWikiClient.replaceCategoryInPage', () => {
   })
 })
 
+describe('MediaWikiClient.nullEdit retry', () => {
+  const origSetTimeout = globalThis.setTimeout
+
+  function makeQueryResponse() {
+    return {
+      query: {
+        pages: { '1': { revisions: [{ slots: { main: { content: 'wikitext' } } }] } },
+      },
+    }
+  }
+
+  it('succeeds after transient failures within retry limit', async () => {
+    globalThis.setTimeout = ((fn: () => void) => origSetTimeout(fn, 0)) as typeof setTimeout
+    try {
+      const client = new MediaWikiClient(['key', 'secret'])
+      // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+      ;(client as any).getCsrfToken = mock(async () => 'token+\\')
+      let editAttempts = 0
+      // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+      ;(client as any).apiRequest = mock(async (params: Record<string, string>) => {
+        if (params.action === 'query') return makeQueryResponse()
+        editAttempts++
+        if (editAttempts <= 2) throw new Error('transient network error')
+        return {}
+      })
+      await expect(client.nullEdit('Photo.jpg')).resolves.toBeUndefined()
+      expect(editAttempts).toBe(3)
+    } finally {
+      globalThis.setTimeout = origSetTimeout
+    }
+  })
+
+  it('throws after all retry attempts are exhausted', async () => {
+    globalThis.setTimeout = ((fn: () => void) => origSetTimeout(fn, 0)) as typeof setTimeout
+    try {
+      const client = new MediaWikiClient(['key', 'secret'])
+      // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+      ;(client as any).getCsrfToken = mock(async () => 'token+\\')
+      // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+      ;(client as any).apiRequest = mock(async (params: Record<string, string>) => {
+        if (params.action === 'query') return makeQueryResponse()
+        throw new Error('persistent error')
+      })
+      await expect(client.nullEdit('Photo.jpg')).rejects.toThrow('persistent error')
+    } finally {
+      globalThis.setTimeout = origSetTimeout
+    }
+  })
+})
+
 describe('MediaWikiClient.fetchSdc', () => {
   it('returns null when the entity is marked missing', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
