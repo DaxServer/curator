@@ -190,21 +190,22 @@ export class MediaWikiClient {
     uploadId: number,
     batchId: number,
   ): Promise<string> {
-    let downloadRes: Response
+    let buffer: ReturnType<typeof Buffer.from>
     try {
-      downloadRes = await fetch(fileUrl, { headers: { 'User-Agent': config.userAgent } })
+      const downloadRes = await fetch(fileUrl, { headers: { 'User-Agent': config.userAgent } })
+      if (!downloadRes.ok) {
+        if (downloadRes.status >= 500)
+          throw new SourceCdnError(`Source CDN error: ${downloadRes.status}`)
+        throw new Error(`Failed to download file: ${downloadRes.status}`)
+      }
+      buffer = Buffer.from(await downloadRes.arrayBuffer())
     } catch (err) {
+      if (err instanceof SourceCdnError) throw err
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED')
         throw new SourceCdnError(`Source CDN network error (${code})`)
       throw err
     }
-    if (!downloadRes.ok) {
-      if (downloadRes.status >= 500)
-        throw new SourceCdnError(`Source CDN error: ${downloadRes.status}`)
-      throw new Error(`Failed to download file: ${downloadRes.status}`)
-    }
-    const buffer = Buffer.from(await downloadRes.arrayBuffer())
     const sha1 = createHash('sha1').update(buffer).digest('hex')
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
     logger.info(`Uploading ${filename} (${buffer.length} bytes) in ${totalChunks} chunks`)
