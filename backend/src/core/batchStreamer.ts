@@ -36,6 +36,7 @@ export class OptimizedBatchStreamer {
       `[ws] [resp] Starting optimized batch streaming for ${this.username} (page: ${page}, limit: ${limit})`,
     )
     const offset = (page - 1) * limit
+    this.lastUpdateTime = await this.batches.getLatestUpdateTime({ userid, filterText })
     const [items, total] = await Promise.all([
       this.batches.getBatches({ offset, limit, filterText, userid }),
       this.batches.countBatches({ filterText, userid }),
@@ -46,7 +47,6 @@ export class OptimizedBatchStreamer {
       partial: false,
       nonce: nonce(),
     })
-    this.lastUpdateTime = await this.batches.getLatestUpdateTime({ userid, filterText })
 
     if (page > 1) {
       logger.info(
