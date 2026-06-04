@@ -76,10 +76,20 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     const err = Object.assign(new Error('The socket connection was closed unexpectedly'), {
       code: 'ECONNRESET',
     })
-    globalThis.fetch = mock(async () => { throw err }) as unknown as typeof fetch
+    globalThis.fetch = mock(async () => {
+      throw err
+    }) as unknown as typeof fetch
     const { redis } = makeRedisMock()
     await expect(
-      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
+      client.uploadFile(
+        'test.jpg',
+        'https://cdn.example/test.jpg',
+        'wikitext',
+        'summary',
+        redis,
+        1,
+        1,
+      ),
     ).rejects.toBeInstanceOf(SourceCdnError)
   })
 
