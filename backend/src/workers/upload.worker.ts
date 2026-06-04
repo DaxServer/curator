@@ -154,6 +154,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                   labelsDelta,
                   summary,
                 )
+                await mw.nullEdit(dupeFilename)
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
                   type: 'duplicated_sdc_updated',
                   links,

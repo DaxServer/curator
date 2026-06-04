@@ -258,6 +258,23 @@ describe('upload worker — duplicate path: all claims sent when fetchSdc return
   })
 })
 
+describe('upload worker — duplicate path: nullEdit called after applySdc on duplicate', () => {
+  it('calls nullEdit on the duplicate filename after applying SDC delta', async () => {
+    const nullEdit = mock(async () => {})
+    const stub = makeClientStub({
+      fetchSdc: async () => null,
+      nullEdit,
+    })
+    setupWorker(stub)
+
+    await capturedProcessor!(makeJob())
+
+    expect(nullEdit).toHaveBeenCalledTimes(1)
+    const nullEditCalls = nullEdit.mock.calls as unknown as unknown[][]
+    expect(nullEditCalls[0]![0]).toBe('Existing.jpg')
+  })
+})
+
 describe('upload worker — duplicate path: label delta respected', () => {
   it('calls applySdc with labelsDelta when label is absent from existing SDC', async () => {
     const newClaims = buildStatementsFromMapillaryImage(FAKE_IMAGE, true)
