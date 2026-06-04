@@ -83,6 +83,34 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     ).rejects.toBeInstanceOf(SourceCdnError)
   })
 
+  it('throws SourceCdnError when source CDN resets connection during body streaming (ECONNRESET on arrayBuffer)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const err = Object.assign(new Error('The socket connection was closed unexpectedly'), {
+      code: 'ECONNRESET',
+    })
+    globalThis.fetch = mock(async () => {
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => {
+          throw err
+        },
+      } as unknown as Response
+    }) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    await expect(
+      client.uploadFile(
+        'test.jpg',
+        'https://cdn.example/test.jpg',
+        'wikitext',
+        'summary',
+        redis,
+        1,
+        1,
+      ),
+    ).rejects.toBeInstanceOf(SourceCdnError)
+  })
+
   it('throws SourceCdnError when source URL returns 5xx', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     mockFetch({}, 503)
