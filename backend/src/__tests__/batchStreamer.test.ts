@@ -91,7 +91,7 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
 
     mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
     mockCountBatches.mockImplementation(async () => 1)
-    // First call returns t0 (recorded as lastUpdateTime after initial send)
+    // First call returns t0 (recorded as lastUpdateTime before getBatches/initial send)
     // Second call (in poll) returns t1, triggering partial update
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => t0)
