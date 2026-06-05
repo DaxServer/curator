@@ -1,19 +1,12 @@
-import { createMockUploadItem } from '@frontend/__tests__/fixtures'
+import { createMockUploadItem, useHappyDom } from '@frontend/__tests__/fixtures'
 import { useDataFilters } from '@frontend/composables/useDataFilters'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import { UPLOAD_STATUS } from '@frontend/types/image'
-import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 
 describe('useDataFilters', () => {
-  beforeAll(() => {
-    GlobalRegistrator.register()
-  })
-
-  afterAll(() => {
-    GlobalRegistrator.unregister()
-  })
+  useHappyDom()
 
   beforeEach(() => {
     setActivePinia(createPinia())

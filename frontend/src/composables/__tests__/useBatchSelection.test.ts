@@ -1,18 +1,11 @@
-import { createMockUploadItem } from '@frontend/__tests__/fixtures'
+import { createMockUploadItem, useHappyDom } from '@frontend/__tests__/fixtures'
 import { useBatchSelection } from '@frontend/composables/useBatchSelection'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
-import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { beforeEach, describe, expect, it } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 
 describe('useBatchSelection', () => {
-  beforeAll(() => {
-    GlobalRegistrator.register()
-  })
-
-  afterAll(() => {
-    GlobalRegistrator.unregister()
-  })
+  useHappyDom()
 
   beforeEach(() => {
     setActivePinia(createPinia())

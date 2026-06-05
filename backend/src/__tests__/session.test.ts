@@ -1,30 +1,13 @@
-import { sessionPlugin, type SessionStore } from '@backend/core/session'
+import { makeSessionStorePlugin } from '@backend/__tests__/helpers'
+import { sessionPlugin } from '@backend/core/session'
 import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 
 const COOKIE_CONFIG = { cookie: { httpOnly: true, sameSite: 'lax' as const, path: '/' } }
 
-function makeTestStorePlugin(store = new Map<string, string>()) {
-  const sessionStore: SessionStore = {
-    async get(key) {
-      return store.get(key) ?? null
-    },
-    async set(key, value, _ex, _ttl) {
-      store.set(key, value)
-    },
-    async del(key) {
-      store.delete(key)
-    },
-  }
-  return {
-    plugin: new Elysia({ name: 'session-store' }).decorate('sessionStore', sessionStore),
-    store,
-  }
-}
-
 describe('session plugin', () => {
   it('injects empty session on first request', async () => {
-    const { plugin } = makeTestStorePlugin()
+    const { plugin } = makeSessionStorePlugin()
     const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
@@ -36,7 +19,7 @@ describe('session plugin', () => {
   })
 
   it('persists session data after save()', async () => {
-    const { plugin } = makeTestStorePlugin()
+    const { plugin } = makeSessionStorePlugin()
     const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
@@ -61,7 +44,7 @@ describe('session plugin', () => {
   })
 
   it('clears session data on clear()', async () => {
-    const { plugin } = makeTestStorePlugin()
+    const { plugin } = makeSessionStorePlugin()
     const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)
@@ -87,7 +70,7 @@ describe('session plugin', () => {
   })
 
   it('expires cookie and deletes store entry on clear() + save()', async () => {
-    const { plugin, store } = makeTestStorePlugin()
+    const { plugin, store } = makeSessionStorePlugin()
     const app = new Elysia(COOKIE_CONFIG)
       .use(plugin)
       .use(sessionPlugin)

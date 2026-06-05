@@ -1,9 +1,9 @@
+import { fakeBatchItem, makeSender } from '@backend/__tests__/helpers'
 import type { BatchItem, BatchService } from '@backend/db/dal/batches'
 import type { PresetService } from '@backend/db/dal/presets'
 import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
 import type { UserService } from '@backend/db/dal/users'
 import { fetchExistingPages, fromMapillary } from '@backend/handlers/mapillary'
-import type { ServerMessage } from '@backend/types/ws'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 // mock.module() in Bun is global and persistent for the entire test process —
@@ -163,18 +163,6 @@ const fakeUserService = {
 // Test helpers
 // ============================================================
 
-function makeSender() {
-  const messages: ServerMessage[] = []
-  return {
-    send: mock((msg: ServerMessage) => {
-      messages.push(msg)
-    }),
-    get messages() {
-      return messages
-    },
-  }
-}
-
 function makeRedis() {
   return {
     get: mock(async (_key: string) => null as string | null),
@@ -209,28 +197,6 @@ function makeHandler(sender = makeSender(), redis = makeRedis()) {
     ),
     sender,
     redis,
-  }
-}
-
-// Helper to build a minimal BatchItem from the DAL
-function fakeBatchItem(overrides: Partial<BatchItem> = {}): BatchItem {
-  return {
-    id: 1,
-    userid: '1',
-    username: 'alice',
-    edit_group_id: 'eg-xyz',
-    created_at: '2024-01-01T00:00:00.000Z',
-    updated_at: '2024-01-01T00:00:00.000Z',
-    stats: {
-      total: 0,
-      queued: 0,
-      in_progress: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-      duplicate: 0,
-    },
-    ...overrides,
   }
 }
 

@@ -1,4 +1,4 @@
-import type { SessionStore } from '@backend/core/session'
+import { makeSessionStore } from '@backend/__tests__/helpers'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'
 
@@ -23,22 +23,6 @@ mock.module('@backend/workers/queue', () => ({
 const { adminRoutes } = await import('@backend/routes/admin')
 
 // ============================================================
-
-function makeStore() {
-  const m = new Map<string, string>()
-  const store: SessionStore = {
-    async get(k) {
-      return m.get(k) ?? null
-    },
-    async set(k, v, _ex, _ttl) {
-      m.set(k, v)
-    },
-    async del(k) {
-      m.delete(k)
-    },
-  }
-  return { m, store }
-}
 
 function seedSession(m: Map<string, string>, username = 'DaxServer', sub = '1'): string {
   const id = 'test-session'
@@ -66,7 +50,7 @@ type ServiceOverrides = {
 }
 
 function makeTestApp(overrides: ServiceOverrides = {}) {
-  const { m, store } = makeStore()
+  const { store, map: m } = makeSessionStore()
 
   const mockBatches = {
     getBatches: mock(async () => []),

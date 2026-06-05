@@ -1,5 +1,9 @@
+import {
+  createSocketModule,
+  type SocketFactory,
+  type WsInstance,
+} from '@frontend/composables/useSocket'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { createSocketModule, type SocketFactory, type WsInstance } from '../useSocket'
 
 class MockWS {
   private handlers = new Map<string, Array<(e: Event) => void>>()

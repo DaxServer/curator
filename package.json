@@ -65,6 +65,7 @@
     "worker": "bun --cwd backend worker",
     "build": "bun --filter @curator/frontend build && bun --filter @curator/backend build",
     "test": "bun test",
+    "tsc": "bun --filter '*' typecheck",
     "typecheck": "bun --filter '*' typecheck",
     "lint": "bun --filter '*' lint",
     "format": "bun --filter '*' format",

@@ -1,5 +1,5 @@
+import { makeSessionStore } from '@backend/__tests__/helpers'
 import type { OAuthClient } from '@backend/core/oauthClient'
-import type { SessionStore } from '@backend/core/session'
 import { authRoutes } from '@backend/routes/auth'
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'
@@ -23,42 +23,20 @@ function makeMockClient(): OAuthClient {
 }
 
 function makeTestApp(client?: OAuthClient) {
-  const store = new Map<string, string>()
-  const sessionStore: SessionStore = {
-    async get(k) {
-      return store.get(k) ?? null
-    },
-    async set(k, v, _ex, _ttl) {
-      store.set(k, v)
-    },
-    async del(k) {
-      store.delete(k)
-    },
-  }
+  const { store } = makeSessionStore()
   return new Elysia()
-    .use(new Elysia({ name: 'session-store' }).decorate('sessionStore', sessionStore))
+    .use(new Elysia({ name: 'session-store' }).decorate('sessionStore', store))
     .use(new Elysia({ name: 'oauth-client' }).decorate('oauthClient', client ?? makeMockClient()))
     .use(authRoutes)
 }
 
 function makeTestAppWithStore(client?: OAuthClient) {
-  const store = new Map<string, string>()
-  const sessionStore: SessionStore = {
-    async get(k) {
-      return store.get(k) ?? null
-    },
-    async set(k, v, _ex, _ttl) {
-      store.set(k, v)
-    },
-    async del(k) {
-      store.delete(k)
-    },
-  }
+  const { store, map } = makeSessionStore()
   const app = new Elysia()
-    .use(new Elysia({ name: 'session-store' }).decorate('sessionStore', sessionStore))
+    .use(new Elysia({ name: 'session-store' }).decorate('sessionStore', store))
     .use(new Elysia({ name: 'oauth-client' }).decorate('oauthClient', client ?? makeMockClient()))
     .use(authRoutes)
-  return { app, store }
+  return { app, store: map }
 }
 
 describe('GET /auth/whoami', () => {
