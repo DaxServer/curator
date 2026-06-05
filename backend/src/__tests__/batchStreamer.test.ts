@@ -1,7 +1,7 @@
+import { OptimizedBatchStreamer, STREAM_INTERVAL_MS } from '@backend/core/batchStreamer'
 import type { BatchItem, BatchService } from '@backend/db/dal/batches'
-import { beforeEach, describe, expect, it, mock } from 'bun:test'
-import { STREAM_INTERVAL_MS, OptimizedBatchStreamer } from '@backend/core/batchStreamer'
 import type { ServerMessage } from '@backend/types/ws'
+import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 function makeSender() {
   const messages: ServerMessage[] = []
@@ -198,7 +198,7 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
     mockCountBatches.mockImplementation(async () => 2)
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => null) // startStreaming: before batch2 exists
-      .mockImplementation(async () => t1)        // poll: batch2 now in DB
+      .mockImplementation(async () => t1) // poll: batch2 now in DB
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [2])
     mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem(2)])
 
@@ -220,15 +220,31 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
 
     const t1 = new Date('2024-01-01T00:00:01.000Z')
     const staleBatch = fakeBatchItem(1)
-    staleBatch.stats = { total: 1, queued: 1, in_progress: 0, completed: 0, failed: 0, cancelled: 0, duplicate: 0 }
+    staleBatch.stats = {
+      total: 1,
+      queued: 1,
+      in_progress: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      duplicate: 0,
+    }
     const freshBatch = fakeBatchItem(1)
-    freshBatch.stats = { total: 1, queued: 0, in_progress: 0, completed: 1, failed: 0, cancelled: 0, duplicate: 0 }
+    freshBatch.stats = {
+      total: 1,
+      queued: 0,
+      in_progress: 0,
+      completed: 1,
+      failed: 0,
+      cancelled: 0,
+      duplicate: 0,
+    }
 
     mockGetBatches.mockImplementation(async () => [staleBatch])
     mockCountBatches.mockImplementation(async () => 1)
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => null) // startStreaming: before upload completed
-      .mockImplementation(async () => t1)        // poll: upload now completed
+      .mockImplementation(async () => t1) // poll: upload now completed
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [1])
     mockGetBatchesMinimal.mockImplementation(async () => [freshBatch])
 
@@ -240,7 +256,8 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
       (m) => m.type === 'BATCHES_LIST' && (m as { partial: boolean }).partial === true,
     )
     expect(partialMsgs).toHaveLength(1)
-    const updatedBatch = (partialMsgs[0] as { data: { items: typeof freshBatch[] } }).data.items[0]
+    const updatedBatch = (partialMsgs[0] as { data: { items: (typeof freshBatch)[] } }).data
+      .items[0]
     expect(updatedBatch?.stats.completed).toBe(1)
   })
 })
