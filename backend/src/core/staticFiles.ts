@@ -10,7 +10,7 @@ export function serveStaticFiles(embeddedFiles: Record<string, string>, indexHtm
       const filePath = embeddedFiles[pathname]
       if (pathname.startsWith('/assets/') && filePath) {
         set.headers['Cache-Control'] = `public, max-age=${ONE_MONTH_SECONDS}`
-        set.headers['Vary'] = 'Accept-Encoding'
+        set.headers.Vary = 'Accept-Encoding'
         const acceptsGzip = request.headers.get('Accept-Encoding')?.includes('gzip') ?? false
         const gzPath = embeddedFiles[`${pathname}.gz`]
         if (acceptsGzip && gzPath) {

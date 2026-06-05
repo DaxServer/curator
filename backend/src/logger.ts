@@ -15,7 +15,7 @@ export const logger = isTest
       pretty({
         singleLine: true,
         ignore: isToolforge && !isWorker ? 'pid,hostname,time' : 'pid,hostname',
-        translateTime: 'UTC:yyyy-mm-dd"T"HH:MM:ss.l"Z"',
+        translateTime: 'SYS:standard',
         customPrettifiers: { time: (ts) => String(ts) },
       }),
     )

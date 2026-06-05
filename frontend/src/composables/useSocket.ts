@@ -3,22 +3,81 @@ import type { ClientMessage, ServerMessage } from '@backend/types/ws'
 import { treaty } from '@elysiajs/eden'
 import { ref } from 'vue'
 
+const RECONNECT_BASE_DELAY = 1_000
+const RECONNECT_MAX_DELAY = 30_000
+
 const getOrigin = () =>
   typeof location !== 'undefined' ? location.origin : 'http://localhost:8000'
 
-const data = ref<ServerMessage | null>(null)
-let _ws: ReturnType<ReturnType<typeof treaty<App>>['ws']['subscribe']> | null = null
+type TreatyClient = ReturnType<typeof treaty<App>>
+export type WsInstance = ReturnType<TreatyClient['ws']['subscribe']>
+export type SocketFactory = (origin: string) => { ws: { subscribe(): WsInstance } }
 
-const open = () => {
-  if (_ws) close()
-  const client = treaty<App>(getOrigin())
-  _ws = client.ws.subscribe()
-  _ws.subscribe((event) => {
-    data.value = event.data
-  })
+type TimerHandle = ReturnType<typeof setTimeout>
+
+const defaultTimer = {
+  set: (fn: () => void, ms: number) => setTimeout(fn, ms),
+  clear: (id: TimerHandle) => clearTimeout(id),
 }
 
-const send = (msg: ClientMessage) => _ws?.send(msg)
-const close = () => _ws?.close()
+export const createSocketModule = (
+  treatyFn: SocketFactory = treaty as unknown as SocketFactory,
+  timer = defaultTimer,
+) => {
+  const data = ref<ServerMessage | null>(null)
+  let _ws: WsInstance | null = null
+  let _reconnectDelay = RECONNECT_BASE_DELAY
+  let _reconnectTimer: TimerHandle | null = null
+  let _active = false
 
-export const useSocket = { data, open, send, close }
+  const _onOpen = () => {
+    _reconnectDelay = RECONNECT_BASE_DELAY
+  }
+
+  const _onClose = () => {
+    if (_active) _scheduleReconnect()
+  }
+
+  const _scheduleReconnect = () => {
+    if (_reconnectTimer !== null) timer.clear(_reconnectTimer)
+    _reconnectTimer = timer.set(() => {
+      _reconnectTimer = null
+      if (_active) open(true)
+    }, _reconnectDelay)
+    _reconnectDelay = Math.min(_reconnectDelay * 2, RECONNECT_MAX_DELAY)
+  }
+
+  const open = (isReconnect = false) => {
+    _active = true
+    if (!isReconnect) _reconnectDelay = RECONNECT_BASE_DELAY
+    if (_ws) {
+      _ws.off('close', _onClose)
+      _ws.close()
+    }
+    _ws = null
+    const client = treatyFn(getOrigin())
+    _ws = client.ws.subscribe()
+    _ws.subscribe((event) => {
+      data.value = event.data
+    })
+    _ws.on('open', _onOpen)
+    _ws.on('close', _onClose)
+  }
+
+  const send = (msg: ClientMessage) => _ws?.send(msg)
+
+  const close = () => {
+    _active = false
+    if (_reconnectTimer !== null) timer.clear(_reconnectTimer)
+    _reconnectTimer = null
+    if (_ws) {
+      _ws.off('close', _onClose)
+      _ws.close()
+    }
+    _ws = null
+  }
+
+  return { data, open, send, close }
+}
+
+export const useSocket = createSocketModule()
