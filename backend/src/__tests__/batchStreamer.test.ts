@@ -1,37 +1,12 @@
+import { fakeBatchItem, makeSender } from '@backend/__tests__/helpers'
 import { OptimizedBatchStreamer, STREAM_INTERVAL_MS } from '@backend/core/batchStreamer'
 import type { BatchItem, BatchService } from '@backend/db/dal/batches'
-import type { ServerMessage } from '@backend/types/ws'
-import { beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test'
 
-function makeSender() {
-  const messages: ServerMessage[] = []
-  return {
-    send: mock((msg: ServerMessage) => {
-      messages.push(msg)
-    }),
-    get messages() {
-      return messages
-    },
-  }
-}
-
-function fakeBatchItem(id: number): BatchItem {
-  return {
-    id,
-    userid: '1',
-    username: 'alice',
-    edit_group_id: 'eg-abc',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    stats: {
-      total: 1,
-      queued: 1,
-      in_progress: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-      duplicate: 0,
-    },
+// Each await in poll interleaves with one Promise.resolve() here; 10 rounds is plenty
+async function flushPromises() {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve()
   }
 }
 
@@ -50,6 +25,7 @@ const fakeBatchService = {
 } as unknown as BatchService
 
 beforeEach(() => {
+  jest.useFakeTimers()
   for (const m of [
     mockGetBatches,
     mockCountBatches,
@@ -61,12 +37,17 @@ beforeEach(() => {
   }
 })
 
+afterEach(() => {
+  jest.clearAllTimers()
+  jest.useRealTimers()
+})
+
 describe('OptimizedBatchStreamer.startStreaming', () => {
   it('sends initial BATCHES_LIST with partial=false', async () => {
     const sender = makeSender()
     const streamer = new OptimizedBatchStreamer(sender, 'alice', fakeBatchService)
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatches.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
     mockCountBatches.mockImplementation(async () => 1)
     mockGetLatestUpdateTime.mockImplementation(async () => null)
 
@@ -89,7 +70,7 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
     const t0 = new Date('2024-01-01T00:00:00.000Z')
     const t1 = new Date('2024-01-01T00:00:01.000Z')
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatches.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
     mockCountBatches.mockImplementation(async () => 1)
     // First call returns t0 (recorded as lastUpdateTime before getBatches/initial send)
     // Second call (in poll) returns t1, triggering partial update
@@ -97,12 +78,13 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
       .mockImplementationOnce(async () => t0)
       .mockImplementationOnce(async () => t1)
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [1])
-    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
 
     await streamer.startStreaming(undefined, undefined, 1, 10)
 
-    // Wait for the initial setTimeout(poll, 0) to fire and complete
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Fire the initial setTimeout(poll, 0) and let poll's async chain complete
+    jest.advanceTimersByTime(0)
+    await flushPromises()
     streamer.stopStreaming()
 
     const partialMsgs = sender.messages.filter(
@@ -115,14 +97,18 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
     const sender = makeSender()
     const streamer = new OptimizedBatchStreamer(sender, 'alice', fakeBatchService)
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(2), fakeBatchItem(3)])
+    mockGetBatches.mockImplementation(async () => [
+      fakeBatchItem({ id: 2 }),
+      fakeBatchItem({ id: 3 }),
+    ])
     mockCountBatches.mockImplementation(async () => 20)
     mockGetLatestUpdateTime.mockImplementation(async () => null)
 
     await streamer.startStreaming(undefined, undefined, 2, 10)
 
-    // Wait to see if any polling fires
-    await new Promise((resolve) => setTimeout(resolve, STREAM_INTERVAL_MS + 50))
+    // Advance past a full polling interval — no timer was scheduled so nothing fires
+    jest.advanceTimersByTime(STREAM_INTERVAL_MS + 50)
+    await flushPromises()
     streamer.stopStreaming()
 
     // Only the initial BATCHES_LIST should have been sent (no partial updates from polling)
@@ -139,7 +125,7 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
     const t0 = new Date('2024-01-01T00:00:00.000Z')
     const t1 = new Date('2024-01-01T00:00:01.000Z')
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatches.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
     mockCountBatches.mockImplementation(async () => 1)
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => t0)
@@ -148,7 +134,8 @@ describe('OptimizedBatchStreamer.startStreaming', () => {
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [])
 
     await streamer.startStreaming(undefined, undefined, 1, 10)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    jest.advanceTimersByTime(0)
+    await flushPromises()
     streamer.stopStreaming()
 
     const partialMsgs = sender.messages.filter(
@@ -194,16 +181,17 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
 
     const t1 = new Date('2024-01-01T00:00:01.000Z')
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatches.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
     mockCountBatches.mockImplementation(async () => 2)
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => null) // startStreaming: before batch2 exists
       .mockImplementation(async () => t1) // poll: batch2 now in DB
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [2])
-    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem(2)])
+    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem({ id: 2 })])
 
     await streamer.startStreaming(undefined, undefined, 1, 10)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    jest.advanceTimersByTime(0)
+    await flushPromises()
     streamer.stopStreaming()
 
     const allItems = sender.messages
@@ -219,7 +207,7 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
     const streamer = new OptimizedBatchStreamer(sender, 'alice', fakeBatchService)
 
     const t1 = new Date('2024-01-01T00:00:01.000Z')
-    const staleBatch = fakeBatchItem(1)
+    const staleBatch = fakeBatchItem({ id: 1 })
     staleBatch.stats = {
       total: 1,
       queued: 1,
@@ -229,7 +217,7 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
       cancelled: 0,
       duplicate: 0,
     }
-    const freshBatch = fakeBatchItem(1)
+    const freshBatch = fakeBatchItem({ id: 1 })
     freshBatch.stats = {
       total: 1,
       queued: 0,
@@ -249,7 +237,8 @@ describe('OptimizedBatchStreamer — race condition: getLatestUpdateTime must pr
     mockGetBatchesMinimal.mockImplementation(async () => [freshBatch])
 
     await streamer.startStreaming(undefined, undefined, 1, 10)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    jest.advanceTimersByTime(0)
+    await flushPromises()
     streamer.stopStreaming()
 
     const partialMsgs = sender.messages.filter(
@@ -270,23 +259,25 @@ describe('OptimizedBatchStreamer.stopStreaming', () => {
     const t0 = new Date('2024-01-01T00:00:00.000Z')
     const t1 = new Date('2024-01-01T00:00:01.000Z')
 
-    mockGetBatches.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatches.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
     mockCountBatches.mockImplementation(async () => 1)
     mockGetLatestUpdateTime
       .mockImplementationOnce(async () => t0)
       .mockImplementation(async () => t1)
     mockGetBatchIdsWithRecentChanges.mockImplementation(async () => [1])
-    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem(1)])
+    mockGetBatchesMinimal.mockImplementation(async () => [fakeBatchItem({ id: 1 })])
 
     await streamer.startStreaming(undefined, undefined, 1, 10)
-    // Allow one poll cycle
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Fire and complete one poll cycle
+    jest.advanceTimersByTime(0)
+    await flushPromises()
     streamer.stopStreaming()
 
     const callsAfterStop = mockGetLatestUpdateTime.mock.calls.length
 
-    // Wait another interval — no new poll calls should occur after stop
-    await new Promise((resolve) => setTimeout(resolve, STREAM_INTERVAL_MS + 50))
+    // Advance past another interval — the cleared timer must not re-fire
+    jest.advanceTimersByTime(STREAM_INTERVAL_MS + 50)
+    await flushPromises()
     expect(mockGetLatestUpdateTime.mock.calls.length).toBe(callsAfterStop)
   })
 })

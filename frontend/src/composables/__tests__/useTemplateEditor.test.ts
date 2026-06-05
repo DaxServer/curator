@@ -1,41 +1,11 @@
+import { debounceMock } from '@frontend/__tests__/debounce-mock'
+import { useHappyDom } from '@frontend/__tests__/fixtures'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import type { Item } from '@frontend/types/image'
 import { TITLE_STATUS } from '@frontend/types/image'
-import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 import { effectScope, nextTick, ref } from 'vue'
-
-let pendingDebounceExecutors: (() => Promise<void> | void)[] = []
-mock.module('ts-debounce', () => ({
-  debounce: (fn: (...args: unknown[]) => Promise<void> | void) => {
-    let cancelled = false
-    let callId = 0
-    const debounced = (...args: unknown[]) => {
-      callId += 1
-      const currentCallId = callId
-      pendingDebounceExecutors.push(() => {
-        if (cancelled) return
-        if (currentCallId !== callId) return
-        return fn(...args)
-      })
-    }
-    debounced.cancel = () => {
-      cancelled = true
-    }
-    return debounced
-  },
-}))
 
 const mockCheckCategories = mock(async (_text: string) => {})
 const mockCategoryValidation = { missingCategories: ref([]), checkCategories: mockCheckCategories }
@@ -70,8 +40,7 @@ const makeItem = (id: string, city = 'Berlin'): Item => ({
   isSkeleton: false,
 })
 
-beforeAll(() => GlobalRegistrator.register())
-afterAll(() => GlobalRegistrator.unregister())
+useHappyDom()
 
 describe('useTemplateEditor', () => {
   let useTemplateEditor: typeof import('../useTemplateEditor').useTemplateEditor
@@ -82,7 +51,7 @@ describe('useTemplateEditor', () => {
     setActivePinia(createPinia())
     store = useCollectionsStore()
     mockCheckCategories.mockClear()
-    pendingDebounceExecutors = []
+    debounceMock.reset()
     scope = effectScope()
     const mod = await import('../useTemplateEditor')
     useTemplateEditor = mod.useTemplateEditor
@@ -243,7 +212,7 @@ describe('useTemplateEditor', () => {
 
       expect(editor.descriptionStatus.value).toBe(null)
 
-      for (const exec of pendingDebounceExecutors) await exec()
+      for (const exec of debounceMock.pendingExecutors) await exec()
 
       expect(store.globalDescription).toBe('New desc')
       expect(editor.descriptionStatus.value).toBe('applied')
@@ -259,7 +228,7 @@ describe('useTemplateEditor', () => {
       editor.internalCategories.value = '[[Category:Photos in {{location.city}}]]'
       await nextTick()
 
-      for (const exec of pendingDebounceExecutors) await exec()
+      for (const exec of debounceMock.pendingExecutors) await exec()
 
       expect(store.globalCategories).toBe('[[Category:Photos in {{location.city}}]]')
       expect(mockCheckCategories).toHaveBeenCalledWith(
@@ -274,7 +243,7 @@ describe('useTemplateEditor', () => {
       editor.internalDescription.value = 'same'
       await nextTick()
 
-      for (const exec of pendingDebounceExecutors) await exec()
+      for (const exec of debounceMock.pendingExecutors) await exec()
 
       // description debounce still early-returns (not dirty), status stays null
       expect(editor.descriptionStatus.value).toBe(null)
@@ -288,7 +257,7 @@ describe('useTemplateEditor', () => {
 
       expect(editor.categoriesIsDirty.value).toBe(false)
 
-      for (const exec of pendingDebounceExecutors) await exec()
+      for (const exec of debounceMock.pendingExecutors) await exec()
 
       expect(mockCheckCategories).toHaveBeenCalled()
       expect(store.globalCategories).toBe('[[Category:Berlin Photos]]') // unchanged
@@ -298,9 +267,9 @@ describe('useTemplateEditor', () => {
       const editor = run()
       editor.internalDescription.value = 'first'
       await nextTick()
-      for (const exec of pendingDebounceExecutors) await exec()
+      for (const exec of debounceMock.pendingExecutors) await exec()
       expect(editor.descriptionStatus.value).toBe('applied')
-      pendingDebounceExecutors = []
+      debounceMock.reset()
 
       editor.internalDescription.value = 'second'
       await nextTick()
@@ -313,7 +282,7 @@ describe('useTemplateEditor', () => {
       editor.internalCategories.value = '[[Category:Berlin]]'
       await nextTick()
 
-      const exec = pendingDebounceExecutors[pendingDebounceExecutors.length - 1]!
+      const exec = debounceMock.pendingExecutors[debounceMock.pendingExecutors.length - 1]!
       const applyPromise = exec()
       expect(editor.categoriesStatus.value).toBe('applying')
       await applyPromise

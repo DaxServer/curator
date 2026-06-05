@@ -1,15 +1,8 @@
+import { makeRedisMock } from '@backend/__tests__/helpers'
 import { DuplicateUploadError, HashLockError, SourceCdnError } from '@backend/core/errors'
 import { MediaWikiClient } from '@backend/mediawiki/client'
 import { describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
-
-function makeRedisMock() {
-  const setMock = mock(async () => 'OK' as const)
-  const delMock = mock(async () => 1)
-  const getMock = mock(async () => null)
-  const redis = { get: getMock, set: setMock, del: delMock } as unknown as Redis
-  return { redis, setMock, delMock }
-}
 
 function mockFetch(body: unknown, status = 200) {
   globalThis.fetch = mock(

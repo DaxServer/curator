@@ -1,35 +1,9 @@
+import { debounceMock } from '@frontend/__tests__/debounce-mock'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import type { Image, Item } from '@frontend/types/image'
 import { TITLE_STATUS } from '@frontend/types/image'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
-
-// Mock ts-debounce
-let pendingDebounceExecutors: ((...args: unknown[]) => void)[] = []
-mock.module('ts-debounce', () => {
-  return {
-    debounce: (fn: (...args: unknown[]) => void) => {
-      let cancelled = false
-      let callId = 0
-
-      const debounced = (...args: unknown[]) => {
-        callId += 1
-        const currentCallId = callId
-        pendingDebounceExecutors.push(() => {
-          if (cancelled) return
-          if (currentCallId !== callId) return
-          return fn(...args)
-        })
-      }
-
-      debounced.cancel = () => {
-        cancelled = true
-      }
-
-      return debounced
-    },
-  }
-})
 
 describe('useCommons', () => {
   let useCommons: typeof import('../useCommons').useCommons
@@ -37,7 +11,7 @@ describe('useCommons', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     mock.restore()
-    pendingDebounceExecutors = []
+    debounceMock.reset()
 
     const module = await import('../useCommons')
     useCommons = module.useCommons
@@ -213,11 +187,11 @@ describe('useCommons', () => {
     expect(mockFetch).not.toHaveBeenCalled()
 
     // Flush debounce
-    expect(pendingDebounceExecutors.length).toBe(1)
-    for (const exec of pendingDebounceExecutors) {
+    expect(debounceMock.pendingExecutors.length).toBe(1)
+    for (const exec of debounceMock.pendingExecutors) {
       await exec()
     }
-    pendingDebounceExecutors = []
+    debounceMock.reset()
 
     expect(mockFetch).toHaveBeenCalled()
     expect(store.items['1']!.meta.titleStatus).toBe(TITLE_STATUS.Available)
@@ -250,11 +224,11 @@ describe('useCommons', () => {
 
     expect(store.items['1']!.meta.titleStatus).toBe(TITLE_STATUS.Unknown)
 
-    expect(pendingDebounceExecutors.length).toBe(1)
-    for (const exec of pendingDebounceExecutors) {
+    expect(debounceMock.pendingExecutors.length).toBe(1)
+    for (const exec of debounceMock.pendingExecutors) {
       await exec()
     }
-    pendingDebounceExecutors = []
+    debounceMock.reset()
 
     expect(mockFetch).not.toHaveBeenCalled()
     expect(store.items['1']!.meta.titleStatus).toBe(TITLE_STATUS.Unknown)

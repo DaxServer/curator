@@ -1,13 +1,6 @@
+import { makeRedisMock } from '@backend/__tests__/helpers'
 import { getNextUploadDelay } from '@backend/core/rateLimiter'
-import { describe, expect, it, mock } from 'bun:test'
-import type { Redis } from 'ioredis'
-
-function makeRedisMock(nextAvailable: string | null = null) {
-  const setMock = mock(async () => 'OK' as const)
-  const getMock = mock(async () => nextAvailable)
-  const redis = { get: getMock, set: setMock } as unknown as Redis
-  return { redis, setMock, getMock }
-}
+import { describe, expect, it } from 'bun:test'
 
 describe('getNextUploadDelay', () => {
   it('returns the existing delay without updating Redis when uploadsPerPeriod is 0', async () => {

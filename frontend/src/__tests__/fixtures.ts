@@ -1,5 +1,7 @@
 import type { BatchUploadItem, PresetItem, UploadStatus } from '@backend/types/ws'
 import { UPLOAD_STATUS, type Item } from '@frontend/types/image'
+import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { afterAll, beforeAll } from 'bun:test'
 
 export const makeItem = (
   index: number,
@@ -63,3 +65,8 @@ export const makePreset = (overrides: Partial<PresetItem> = {}): PresetItem => (
   updated_at: '2024-01-01',
   ...overrides,
 })
+
+export function useHappyDom() {
+  beforeAll(() => GlobalRegistrator.register())
+  afterAll(() => GlobalRegistrator.unregister())
+}
