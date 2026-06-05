@@ -91,6 +91,19 @@ describe('useSocket auto-reconnect', () => {
     expect(pendingReconnect).toBeNull()
   })
 
+  it('does not reconnect when stale close event fires after close-then-reopen', () => {
+    socket.open()
+    const oldWs = currentWs!
+
+    socket.close()
+    socket.open()
+
+    // old socket's async close event arrives after reopen
+    oldWs.trigger('close')
+
+    expect(pendingReconnect).toBeNull()
+  })
+
   it('doubles reconnect delay on repeated failures', () => {
     socket.open()
 

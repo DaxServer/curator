@@ -70,7 +70,10 @@ export const createSocketModule = (
     _active = false
     if (_reconnectTimer !== null) timer.clear(_reconnectTimer)
     _reconnectTimer = null
-    _ws?.close()
+    if (_ws) {
+      _ws.off('close', _onClose)
+      _ws.close()
+    }
     _ws = null
   }
 
