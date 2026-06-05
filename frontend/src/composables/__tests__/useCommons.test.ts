@@ -1,4 +1,4 @@
-import { debounceMock } from '@frontend/__tests__/fixtures'
+import { debounceMock } from '@frontend/__tests__/debounce-mock'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import type { Image, Item } from '@frontend/types/image'
 import { TITLE_STATUS } from '@frontend/types/image'

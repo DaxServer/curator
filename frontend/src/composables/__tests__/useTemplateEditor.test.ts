@@ -1,4 +1,5 @@
-import { debounceMock, useHappyDom } from '@frontend/__tests__/fixtures'
+import { debounceMock } from '@frontend/__tests__/debounce-mock'
+import { useHappyDom } from '@frontend/__tests__/fixtures'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 import type { Item } from '@frontend/types/image'
 import { TITLE_STATUS } from '@frontend/types/image'
