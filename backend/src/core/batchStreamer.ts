@@ -1,5 +1,5 @@
+import { logger } from '@backend/core/logger'
 import type { BatchService, BatchItem as DalBatchItem } from '@backend/db/dal/batches'
-import { logger } from '@backend/logger'
 import type { BatchItem, ServerMessage } from '@backend/types/ws'
 
 export const STREAM_INTERVAL_MS = 2000
@@ -32,8 +32,9 @@ export class OptimizedBatchStreamer {
     page: number,
     limit: number,
   ): Promise<void> {
+    const filterSuffix = filterText ? `, filter: "${filterText}"` : ''
     logger.info(
-      `[ws] [resp] Starting optimized batch streaming for ${this.username} (page: ${page}, limit: ${limit})`,
+      `[ws] [resp] starting batch streaming for ${this.username} (page: ${page}, limit: ${limit}${filterSuffix})`,
     )
     const offset = (page - 1) * limit
     this.lastUpdateTime = await this.batches.getLatestUpdateTime({ userid, filterText })
@@ -50,7 +51,7 @@ export class OptimizedBatchStreamer {
 
     if (page > 1) {
       logger.info(
-        `[ws] [resp] Pagination detected (page ${page}), not streaming updates for ${this.username}`,
+        `[ws] [resp] pagination detected (page ${page}), not streaming updates for ${this.username}`,
       )
       return
     }
@@ -69,7 +70,7 @@ export class OptimizedBatchStreamer {
             if (changed.length > 0) {
               const newTotal = await this.batches.countBatches({ filterText, userid })
               logger.info(
-                `[ws] [resp] Updates detected for ${this.username}, sending incremental update`,
+                `[ws] [resp] updates detected for ${this.username}, sending incremental update`,
               )
               this.sender.send({
                 type: 'BATCHES_LIST',
@@ -82,7 +83,7 @@ export class OptimizedBatchStreamer {
           this.lastUpdateTime = current
         }
       } catch (e) {
-        logger.error({ username: this.username, err: e }, 'Streaming error')
+        logger.error({ username: this.username, err: e }, '[ws] streaming error')
       }
       if (this.interval !== null) {
         this.interval = setTimeout(poll, STREAM_INTERVAL_MS)
@@ -93,7 +94,7 @@ export class OptimizedBatchStreamer {
 
   stopStreaming(): void {
     if (this.interval) {
-      logger.info(`[ws] [resp] Stopping optimized batch streaming for ${this.username}`)
+      logger.info(`[ws] [resp] stopping batch streaming for ${this.username}`)
       clearTimeout(this.interval)
       this.interval = null
     }

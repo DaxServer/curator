@@ -1,4 +1,5 @@
 import { config } from '@backend/config'
+import { logger } from '@backend/core/logger'
 import { createOAuthClient } from '@backend/core/oauthClient'
 import { sessionPlugin } from '@backend/core/session'
 import { Elysia, t } from 'elysia'
@@ -17,15 +18,17 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     const { redirectUrl, requestToken } = await oauthClient.initiate()
     session.request_token = requestToken
     await session.save()
-
+    logger.info('[auth] oauth login initiated')
     return redirect(redirectUrl, 302)
   })
   .get('/callback', async ({ oauthClient, session, query, redirect, set }) => {
     if (!session.request_token) {
+      logger.warn('[auth] callback: no request token in session')
       set.status = 400
       return 'No request token in session'
     }
     if (!query.oauth_token || !query.oauth_verifier) {
+      logger.warn('[auth] callback: missing oauth_token or oauth_verifier')
       set.status = 400
       return 'Missing required OAuth parameters'
     }
@@ -37,6 +40,9 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     const identity = await oauthClient.identify(accessToken)
 
     if (identity.editcount < MIN_EDITCOUNT || !identity.rights.includes('autoconfirmed')) {
+      logger.warn(
+        `[auth] login rejected for ${identity.username} (editcount: ${identity.editcount}, autoconfirmed: ${identity.rights.includes('autoconfirmed')})`,
+      )
       set.status = 403
       return 'You must be an autoconfirmed Commons user with at least 50 edits to use this tool.'
     }
@@ -52,12 +58,14 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     session.access_token = accessToken
     delete session.request_token
     await session.save()
-
+    logger.info(`[auth] ${identity.username} logged in`)
     return redirect('/', 302)
   })
   .get('/logout', async ({ session, redirect }) => {
+    const username = session.user?.username
     session.clear()
     await session.save()
+    logger.info(`[auth] ${username ?? 'unknown'} logged out`)
     return redirect('/', 302)
   })
   .get(
@@ -106,6 +114,7 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     }
 
     if (providedKey !== xApiKey) {
+      logger.warn('[auth] /register: invalid api key')
       set.status = 401
       return { message: 'Invalid API key' }
     }
@@ -118,6 +127,6 @@ export const authRoutes = new Elysia({ name: 'auth-routes', prefix: '/auth' })
     }
     session.access_token = ['test-key', 'test-secret']
     await session.save()
-
+    logger.info(`[auth] bot user ${xUsername} registered`)
     return { message: 'User registered successfully', username: xUsername }
   })

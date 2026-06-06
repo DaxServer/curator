@@ -6,8 +6,8 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
+import { logger } from '@backend/core/logger'
 import { buildAuthHeader } from '@backend/core/oauthClient'
-import { logger } from '@backend/logger'
 import type { Redis } from 'ioredis'
 import { createHash } from 'node:crypto'
 
@@ -66,10 +66,15 @@ export class MediaWikiClient {
       token,
     })
     if (result.error) {
-      if ((result.error as Record<string, string>).code === 'articleexists') return title
+      if ((result.error as Record<string, string>).code === 'articleexists') {
+        logger.info(`[mw] page already exists: ${title}`)
+        return title
+      }
       throw new Error((result.error as Record<string, string>).info ?? 'Edit failed')
     }
-    return (result.edit as Record<string, string>).title as string
+    const createdTitle = (result.edit as Record<string, string>).title as string
+    logger.info(`[mw] page created: ${createdTitle}`)
+    return createdTitle
   }
 
   async isCategoryDeleted(title: string): Promise<boolean> {
@@ -105,7 +110,7 @@ export class MediaWikiClient {
         >) ?? []
       for (const m of members) titles.push(m.title!)
       if (!result.continue) {
-        logger.info(`Retrieved ${titles.length} file titles in [[Category:${category}]]`)
+        logger.info(`[mw] retrieved ${titles.length} file titles in [[Category:${category}]]`)
         break
       }
       params = {
@@ -208,7 +213,7 @@ export class MediaWikiClient {
     }
     const sha1 = createHash('sha1').update(buffer).digest('hex')
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
-    logger.info(`Uploading ${filename} (${buffer.length} bytes) in ${totalChunks} chunks`)
+    logger.info(`[mw] uploading ${filename} (${buffer.length} bytes, ${totalChunks} chunks)`)
 
     const duplicates = await this.findDuplicates(sha1)
     if (duplicates.length > 0) {
@@ -251,10 +256,10 @@ export class MediaWikiClient {
         const upload = result.upload as Record<string, unknown>
         stashKey = upload.filekey as string
         const chunkNum = offset / CHUNK_SIZE + 1
-        logger.info(`Uploaded chunk ${chunkNum}/${totalChunks} filekey: ${stashKey}`)
+        logger.info(`[mw] chunk ${chunkNum}/${totalChunks} uploaded`)
       }
 
-      logger.info(`Final commit for ${filename} with filekey ${stashKey}`)
+      logger.info(`[mw] final commit for ${filename}`)
       let commitResult: Record<string, unknown> | null = null
       for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
         const formData = new FormData()
@@ -270,7 +275,7 @@ export class MediaWikiClient {
         if (errorObj) {
           if (errorObj.code === 'uploadstash-file-not-found' && attempt < STASH_RETRY_LIMIT) {
             logger.warn(
-              `uploadstash-file-not-found on attempt ${attempt + 1}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
+              `[mw] stash file not found on attempt ${attempt + 1}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
             )
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
             continue
@@ -326,7 +331,7 @@ export class MediaWikiClient {
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
-    logger.info(`SDC applied to ${filename}`)
+    logger.info(`[mw] sdc applied to ${filename}`)
   }
 
   async nullEdit(filename: string): Promise<void> {
@@ -353,12 +358,12 @@ export class MediaWikiClient {
           bot: '0',
           token,
         })
-        logger.info(`Null edit performed on ${filename}`)
+        logger.info(`[mw] null edit on ${filename}`)
         return
       } catch (err) {
         if (attempt < STASH_RETRY_LIMIT) {
           logger.warn(
-            `nullEdit attempt ${attempt + 1} failed for ${filename}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
+            `[mw] null edit attempt ${attempt + 1} failed for ${filename}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
           )
           await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
         } else {
@@ -427,7 +432,7 @@ export class MediaWikiClient {
     })
     if (editResult.error) return false
     logger.info(
-      `Recategorized ${title} from [[Category:${sourceNormalized}]] to [[Category:${targetNormalized}]]`,
+      `[mw] recategorized ${title}: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
     )
     return true
   }

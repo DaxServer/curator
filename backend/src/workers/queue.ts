@@ -1,4 +1,5 @@
 import { config } from '@backend/config'
+import { logger } from '@backend/core/logger'
 import { Queue } from 'bullmq'
 
 export interface UploadJobData {
@@ -28,10 +29,16 @@ export async function enqueueUpload(data: UploadJobData, delayMs: number): Promi
     removeOnComplete: { age: 86400 },
     removeOnFail: { age: 86400 * 7 },
   })
+  logger.info(
+    `[worker] upload ${data.uploadId} enqueued (job: ${job.id}, batch: ${data.batchId}, delay: ${Math.round(delayMs)}ms)`,
+  )
   return job.id!
 }
 
 export async function removeUploadJob(jobId: string): Promise<void> {
   const job = await getUploadQueue().getJob(jobId)
-  if (job) await job.remove()
+  if (job) {
+    await job.remove()
+    logger.info(`[worker] job ${jobId} removed from queue`)
+  }
 }
