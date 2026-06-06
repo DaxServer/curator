@@ -32,7 +32,7 @@ function formatDuration(beforeTime: bigint): string {
 type LogStore = { beforeTime: bigint }
 
 export const elysiaLogger = new Elysia({ name: 'elysia-logger' })
-  .state('beforeTime', BigInt(0))
+  .state('beforeTime', process.hrtime.bigint())
   .onBeforeHandle({ as: 'global' }, ({ store }) => {
     ;(store as LogStore).beforeTime = process.hrtime.bigint()
   })
@@ -46,6 +46,7 @@ export const elysiaLogger = new Elysia({ name: 'elysia-logger' })
     const status = 'status' in error ? (error as { status: number }).status : 500
     const message = error instanceof Error ? error.message : ''
     logger.error(
+      { err: error },
       `${request.method} ${new URL(request.url).pathname} ${status} ${message} | ${formatDuration((store as LogStore).beforeTime)}`,
     )
   })
