@@ -25,7 +25,7 @@ function formatDuration(beforeTime: bigint): string {
   const ns = Number(process.hrtime.bigint() - beforeTime)
   if (ns >= 1e9) return `${(ns / 1e9).toFixed(2)}s`
   if (ns >= 1e6) return `${(ns / 1e6).toFixed(0)}ms`
-  if (ns >= 1e3) return `${(ns / 1e3).toFixed(0)}µs`
+  if (ns >= 1e3) return `${(ns / 1e3).toFixed(0)}us`
   return `${ns}ns`
 }
 
