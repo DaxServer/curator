@@ -6,10 +6,10 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
+import { logger } from '@backend/core/logger'
 import { lazyDb } from '@backend/db/client'
 import { UploadService } from '@backend/db/dal/uploads'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
-import { logger } from '@backend/logger'
 import { MediaWikiClient } from '@backend/mediawiki/client'
 import {
   buildStatementsFromMapillaryImage,
@@ -39,17 +39,21 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
     'uploads',
     async (job) => {
       const { uploadId, batchId, editGroupId } = job.data
-      logger.info(`[worker] [${uploadId}] [${job.id}] task started`)
+      logger.info(`[worker] [${uploadId}/${batchId}] task started (job: ${job.id})`)
 
       const upload = await uploads.getUploadById(uploadId)
       if (!upload) {
-        logger.error({ uploadId }, 'Upload not found, skipping')
+        logger.error({ uploadId, batchId }, `[worker] [${uploadId}/${batchId}] upload not found, skipping`)
         return
       }
 
-      if (upload.status === 'cancelled') return
+      if (upload.status === 'cancelled') {
+        logger.info(`[worker] [${uploadId}/${batchId}] skipping cancelled upload`)
+        return
+      }
 
       if (!upload.access_token) {
+        logger.warn(`[worker] [${uploadId}/${batchId}] no access token, marking failed`)
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
@@ -61,6 +65,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       try {
         accessToken = decryptTokenFn(upload.access_token)
       } catch {
+        logger.warn(`[worker] [${uploadId}/${batchId}] failed to decrypt token, marking failed`)
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
@@ -73,7 +78,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       const { blacklisted, reason } = await mw.checkTitleBlacklisted(upload.filename)
       if (blacklisted) {
         logger.warn(
-          `[worker] [${uploadId}/${batchId}] title ${upload.filename} is blacklisted: ${reason}`,
+          `[worker] [${uploadId}/${batchId}] title blacklisted: ${upload.filename} — ${reason}`,
         )
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'title_blacklisted',
@@ -84,13 +89,16 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       }
 
       const handler = makeHandler()
+      logger.info(`[worker] [${uploadId}/${batchId}] fetching image ${upload.key} from mapillary`)
       const images = await handler.fetchImagesBatch([upload.key], upload.collection ?? upload.key)
       const image = images.find((i) => i.id === upload.key)
 
       if (!image) {
+        logger.warn(`[worker] [${uploadId}/${batchId}] image ${upload.key} not found in mapillary, will retry`)
         throw new Error(`Image ${upload.key} not found in Mapillary — will retry`)
       }
 
+      logger.info(`[worker] [${uploadId}/${batchId}] starting upload: ${upload.filename}`)
       await uploads.updateUploadStatus(uploadId, 'in_progress')
 
       const summary = buildEditSummary(upload.key, batchId, editGroupId)
@@ -111,16 +119,17 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         const labelsPayload = labels
           ? { [labels.language]: { language: labels.language, value: labels.value } }
           : null
+        logger.info(`[worker] [${uploadId}/${batchId}] applying sdc`)
         await mw.applySdc(upload.filename, claims, labelsPayload, summary)
 
-        logger.info(`[worker] [${uploadId}/${batchId}] successfully uploaded to ${fileUrl}`)
+        logger.info(`[worker] [${uploadId}/${batchId}] uploaded to ${fileUrl}`)
         await uploads.updateUploadStatus(uploadId, 'completed', null, fileUrl)
         await uploads.clearUploadAccessToken(uploadId)
-        logger.info(`[worker] [${uploadId}] [${job.id}] task completed`)
+        logger.info(`[worker] [${uploadId}/${batchId}] task completed (job: ${job.id})`)
         try {
           await mw.nullEdit(upload.filename)
         } catch (e) {
-          logger.warn({ uploadId, err: e }, 'Null edit failed after upload')
+          logger.warn({ uploadId, err: e }, '[worker] null edit failed after upload')
         }
       } catch (err) {
         if (err instanceof DuplicateUploadError) {
@@ -143,7 +152,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
 
             if (claimsDelta.length === 0 && !labelsDelta) {
               logger.info(
-                `[worker] [${uploadId}/${batchId}] SDC already up to date on ${dupeFilename}`,
+                `[worker] [${uploadId}/${batchId}] sdc already up to date on ${dupeFilename}`,
               )
               await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                 type: 'duplicated_sdc_not_updated',
@@ -166,9 +175,13 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                 try {
                   await mw.nullEdit(dupeFilename)
                 } catch (e) {
-                  logger.warn({ uploadId, err: e }, 'Null edit failed after duplicate SDC update')
+                  logger.warn(
+                    { uploadId, err: e },
+                    '[worker] null edit failed after duplicate sdc update',
+                  )
                 }
-              } catch {
+              } catch (e) {
+                logger.warn({ uploadId, batchId, err: e }, '[worker] sdc update failed on duplicate')
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                   type: 'duplicated_sdc_not_updated',
                   links,
@@ -177,6 +190,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
               }
             }
           } else {
+            logger.info(`[worker] [${uploadId}/${batchId}] duplicate, no existing file links`)
             await uploads.updateUploadStatus(uploadId, 'duplicate', {
               type: 'duplicate',
               links: [],
@@ -185,6 +199,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
           }
 
           await uploads.clearUploadAccessToken(uploadId)
+          logger.info(`[worker] [${uploadId}/${batchId}] task completed (job: ${job.id})`)
           return
         }
 
@@ -197,7 +212,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         }
 
         const message = err instanceof Error ? err.message : 'Unknown error'
-        logger.error({ uploadId, batchId, err }, `Upload failed: ${message}`)
+        logger.error({ uploadId, batchId, err }, '[worker] upload failed')
         await uploads.updateUploadStatus(uploadId, 'failed', { type: 'error', message })
         await uploads.clearUploadAccessToken(uploadId)
       }
@@ -210,7 +225,9 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   )
 
   worker.on('failed', async (job, err) => {
-    logger.error({ jobId: job?.id, err }, 'Job permanently failed')
+    const uploadId = job?.data.uploadId
+    const batchId = job?.data.batchId
+    logger.error({ jobId: job?.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)
     if (job) {
       try {
         const message = err instanceof Error ? err.message : 'Unknown error'
@@ -219,7 +236,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       } catch (dbErr) {
         logger.error(
           { jobId: job.id, err: dbErr },
-          'Failed to update database status for failed job',
+          `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
         )
       }
     }

@@ -28,7 +28,7 @@ export interface SessionStore {
   del(key: string): Promise<void>
 }
 
-const SESSION_TTL = 86400
+const SESSION_TTL = 86400 * 7
 const COOKIE_NAME = 'session_id'
 
 class RedisSessionStore implements SessionStore {

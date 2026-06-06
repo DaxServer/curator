@@ -1,4 +1,5 @@
 import { config } from '@backend/config'
+import { logger } from '@backend/core/logger'
 import type { GeoLocation, MediaImage } from '@backend/types/ws'
 
 class Semaphore {
@@ -69,8 +70,10 @@ export async function reverseGeocodeBatch(images: MediaImage[]): Promise<void> {
       promise: reverseGeocode(img.location.latitude, img.location.longitude, semaphore),
     }))
 
+  logger.info(`[geocoding] reverse geocoding ${tasks.length} images`)
   const results = await Promise.all(tasks.map((t) => t.promise))
 
+  let geocoded = 0
   for (let i = 0; i < tasks.length; i++) {
     const { img } = tasks[i]!
     const result = results[i]
@@ -81,6 +84,8 @@ export async function reverseGeocodeBatch(images: MediaImage[]): Promise<void> {
       img.location.country = result.country ?? img.location.country
       img.location.country_code = result.country_code ?? img.location.country_code
       img.location.postcode = result.postcode ?? img.location.postcode
+      geocoded++
     }
   }
+  logger.info(`[geocoding] geocoded ${geocoded}/${tasks.length} images`)
 }

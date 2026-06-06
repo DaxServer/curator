@@ -1,5 +1,6 @@
 import { config } from '@backend/config'
 import { encryptAccessToken } from '@backend/core/crypto'
+import { logger } from '@backend/core/logger'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
 import { enqueueUpload } from '@backend/workers/queue'
@@ -108,8 +109,11 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .post(
     '/upload_requests/bulk-cancel',
-    async ({ uploads, body }) => {
+    async ({ uploads, body, user }) => {
       const cancelled_count = await uploads.cancelUploadRequests(body.ids)
+      logger.info(
+        `[admin] ${user.username} bulk-cancelled ${cancelled_count} uploads (ids: ${body.ids.join(', ')})`,
+      )
       return { cancelled_count }
     },
     { body: t.Object({ ids: t.Array(t.Number()) }) },
@@ -117,8 +121,11 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
 
   .post(
     '/upload_requests/bulk-fail',
-    async ({ uploads, body }) => {
+    async ({ uploads, body, user }) => {
       const failed_count = await uploads.failUploadRequests(body.ids)
+      logger.info(
+        `[admin] ${user.username} bulk-failed ${failed_count} uploads (ids: ${body.ids.join(', ')})`,
+      )
       return { failed_count }
     },
     { body: t.Object({ ids: t.Array(t.Number()) }) },
@@ -216,6 +223,9 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
         )
         enqueuedCount = results.filter((r) => r.status === 'fulfilled').length
       }
+      logger.info(
+        `[admin] ${session.user!.username} retry: ${newUploadIds.length} uploads enqueued in batch ${newBatchId} (${enqueuedCount}/${newUploadIds.length} queued)`,
+      )
       return {
         message: `Retrying ${newUploadIds.length} of ${body.upload_ids.length} requested uploads`,
         retried_count: newUploadIds.length,

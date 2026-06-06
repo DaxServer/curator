@@ -19,7 +19,6 @@
     "elysia": "catalog:",
     "bullmq": "catalog:",
     "ioredis": "catalog:",
-    "logixlysia": "catalog:",
     "mysql2": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:"

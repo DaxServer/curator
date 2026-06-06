@@ -1,6 +1,6 @@
 import { config } from '@backend/config'
 import { reverseGeocodeBatch } from '@backend/core/geocoding'
-import { logger } from '@backend/logger'
+import { logger } from '@backend/core/logger'
 import { WIKIDATA_PROPERTY } from '@backend/mediawiki/sdc'
 import type { ExistingPage, MediaImage } from '@backend/types/ws'
 
@@ -88,6 +88,7 @@ async function fetchSequenceData(sequenceId: string): Promise<MapillaryImage[]> 
   const data = (await res.json()) as { data: MapillaryImage[] }
   const images = data.data
   images.sort((a, b) => a.captured_at - b.captured_at)
+  logger.debug(`[mapillary] fetched ${images.length} images for sequence ${sequenceId}`)
   return images
 }
 
@@ -102,7 +103,9 @@ async function getSequenceIds(sequenceId: string): Promise<string[]> {
   if (!res.ok) throw new Error(`Mapillary API error: ${res.status}`)
 
   const data = (await res.json()) as { data: { id: string }[] }
-  return data.data.map((i) => String(i.id))
+  const ids = data.data.map((i) => String(i.id))
+  logger.debug(`[mapillary] fetched ${ids.length} ids for sequence ${sequenceId}`)
+  return ids
 }
 
 async function fetchImagesByIds(imageIds: string[]): Promise<MapillaryImage[]> {
@@ -119,7 +122,9 @@ async function fetchImagesByIds(imageIds: string[]): Promise<MapillaryImage[]> {
   if (!res.ok) throw new Error(`Mapillary API error: ${res.status}`)
 
   const data = (await res.json()) as Record<string, MapillaryImage>
-  return Object.values(data)
+  const images = Object.values(data)
+  logger.debug(`[mapillary] fetched ${images.length}/${imageIds.length} images by ids`)
+  return images
 }
 
 async function resolveSequenceIdFromImage(imageId: string): Promise<string | null> {
@@ -130,7 +135,9 @@ async function resolveSequenceIdFromImage(imageId: string): Promise<string | nul
   if (!res.ok) throw new Error(`Mapillary API error: ${res.status}`)
 
   const data = (await res.json()) as { sequence?: string }
-  return data.sequence ?? null
+  const sequenceId = data.sequence ?? null
+  logger.debug(`[mapillary] resolved sequence for image ${imageId}: ${sequenceId ?? 'not found'}`)
+  return sequenceId
 }
 
 export async function fetchExistingPages(
@@ -140,7 +147,7 @@ export async function fetchExistingPages(
   if (numericIds.length < imageIds.length) {
     logger.warn(
       { skipped: imageIds.length - numericIds.length },
-      'Skipping non-numeric Mapillary IDs in SPARQL query',
+      'skipping non-numeric mapillary IDs in sparql query',
     )
   }
   const validIds = [...new Set(numericIds)]
@@ -156,7 +163,7 @@ export async function fetchExistingPages(
   const cookieJar: Record<string, string> = { wcqsOauth: config.wcqsOauthToken }
   let url = 'https://commons-query.wikimedia.org/sparql'
 
-  logger.debug({ imageCount: imageIds.length, url }, 'WCQS query start')
+  logger.debug({ imageCount: imageIds.length, url }, '[mapillary] wcqs query start')
 
   const request = () =>
     fetch(url, {
@@ -174,12 +181,12 @@ export async function fetchExistingPages(
     })
 
   let res = await request()
-  logger.debug({ status: res.status, url }, 'WCQS initial response')
+  logger.debug({ status: res.status, url }, '[mapillary] wcqs initial response')
 
   if (res.status >= 300 && res.status < 400) {
     const location = res.headers.get('location')
     const setCookies = res.headers.getSetCookie()
-    logger.debug({ status: res.status, location, setCookies }, 'WCQS redirect')
+    logger.debug({ status: res.status, location, setCookies }, '[mapillary] wcqs redirect')
     if (location) {
       for (const c of setCookies) {
         const nameValue = c.slice(0, c.indexOf(';') < 0 ? c.length : c.indexOf(';')).trim()
@@ -188,13 +195,13 @@ export async function fetchExistingPages(
       }
       url = new URL(location, url).toString()
       res = await request()
-      logger.debug({ status: res.status, url }, 'WCQS post-redirect response')
+      logger.debug({ status: res.status, url }, '[mapillary] wcqs post-redirect response')
     }
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '(unreadable)')
-    logger.error({ status: res.status, url, body }, 'WCQS SPARQL error')
+    logger.error({ status: res.status, url, body }, '[mapillary] wcqs sparql error')
     throw new Error(`WCQS SPARQL error: ${res.status}`)
   }
 
@@ -203,7 +210,7 @@ export async function fetchExistingPages(
   }
 
   const matchCount = data.results.bindings.length
-  logger.debug({ imageCount: imageIds.length, matchCount }, 'WCQS query complete')
+  logger.debug({ imageCount: imageIds.length, matchCount }, '[mapillary] wcqs query complete')
 
   const existing: Record<string, ExistingPage[]> = {}
   for (const binding of data.results.bindings) {
@@ -232,9 +239,9 @@ export class MapillaryHandler {
 
     const raw = await fetchSequenceData(sequenceId)
     const images = raw.map(fromMapillary).filter((i): i is MediaImage => i !== null)
+    logger.info(`[mapillary] collection fetched: ${images.length} images (sequence: ${sequenceId})`)
 
     await reverseGeocodeBatch(images)
-
     return { images, sequenceId }
   }
 
