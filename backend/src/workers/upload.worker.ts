@@ -254,6 +254,12 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       `[worker] [${uploadId}/${batchId}] job permanently failed`,
     )
     if (job) {
+      // BullMQ fires 'failed' on every attempt, not just the final one.
+      // For errors that rely on BullMQ's built-in retry (not StorageError's custom requeue),
+      // skip DB updates on intermediate attempts — the access token must stay intact for retries.
+      if (!(err instanceof StorageError) && job.attemptsMade < (job.opts.attempts ?? 1)) {
+        return
+      }
       try {
         if (err instanceof StorageError) {
           const count = job.data.requeueCount ?? 0
