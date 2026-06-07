@@ -11,6 +11,11 @@ const RATE_LIMIT_DEFAULT_PERIOD = 60
 const NEXT_AVAILABLE_KEY = 'ratelimit:{userid}:next_available'
 const NO_RATE_LIMIT: RateLimitInfo = { uploadsPerPeriod: 9999, periodSeconds: 60 }
 
+export const RATE_LIMIT_DEFAULT: RateLimitInfo = {
+  uploadsPerPeriod: RATE_LIMIT_DEFAULT_NORMAL,
+  periodSeconds: RATE_LIMIT_DEFAULT_PERIOD,
+}
+
 function mostPermissive(
   limits: Record<string, { hits: number; seconds: number }>,
 ): [number, number] | null {

@@ -44,10 +44,17 @@ import { createUploadWorker } from '@backend/workers/upload.worker'
 
 const mockRedis = {} as Redis
 
-function makeJob(uploadId: number) {
+function makeJob(uploadId: number, requeueCount = 0) {
   return {
     id: `job-${uploadId}`,
-    data: { uploadId, batchId: 1, editGroupId: 'eg-abc', userid: 'user-1' },
+    data: {
+      uploadId,
+      batchId: 1,
+      editGroupId: 'eg-abc',
+      userid: 'user-1',
+      rateLimit: { uploadsPerPeriod: 10, periodSeconds: 60 },
+      requeueCount,
+    },
     attemptsMade: 3,
     opts: { attempts: 3 },
   }
@@ -102,7 +109,6 @@ describe('upload worker — retryable errors escape the processor without a DB u
 describe('upload worker — permanent BullMQ failure marks upload as failed in DB', () => {
   it.each([
     ['HashLockError', new HashLockError('lock already held')],
-    ['StorageError', new StorageError('storage write failed')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
   ])('%s: permanently failed job updates DB status to "failed"', async (_name, error) => {
     const failedHandler = capturedHandlers.get('failed')
@@ -113,6 +119,48 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
     expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'failed', {
       type: 'error',
       message: error.message,
+    })
+    expect(mockClearToken).toHaveBeenCalledWith(1)
+  })
+
+  it('StorageError: resets DB to queued, increments requeueCount, and requeues', async () => {
+    const mockEnqueue = mock(async () => 'new-job-id')
+    const mockGetDelay = mock(async () => 1500)
+    const mockRemoveJob = mock(async () => {})
+    createUploadWorker(mockRedis, {
+      enqueueUpload: mockEnqueue,
+      getNextUploadDelay: mockGetDelay,
+      removeUploadJob: mockRemoveJob,
+    })
+
+    const failedHandler = capturedHandlers.get('failed')
+    expect(failedHandler).toBeDefined()
+
+    const job = makeJob(1, 0)
+    await failedHandler!(job, new StorageError('storage write failed'))
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'queued')
+    expect(mockClearToken).not.toHaveBeenCalled()
+    expect(mockRemoveJob).toHaveBeenCalledWith(job.id)
+    expect(mockGetDelay).toHaveBeenCalledWith(job.data.userid, job.data.rateLimit, mockRedis)
+    expect(mockEnqueue).toHaveBeenCalledWith({ ...job.data, requeueCount: 1 }, 1500)
+  })
+
+  it('StorageError: permanently fails when requeueCount reaches the limit', async () => {
+    const mockEnqueue = mock(async () => 'new-job-id')
+    const mockGetDelay = mock(async () => 1500)
+    createUploadWorker(mockRedis, { enqueueUpload: mockEnqueue, getNextUploadDelay: mockGetDelay })
+
+    const failedHandler = capturedHandlers.get('failed')
+    expect(failedHandler).toBeDefined()
+
+    const job = makeJob(1, 5)
+    await failedHandler!(job, new StorageError('storage write failed'))
+
+    expect(mockEnqueue).not.toHaveBeenCalled()
+    expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'failed', {
+      type: 'error',
+      message: 'storage write failed',
     })
     expect(mockClearToken).toHaveBeenCalledWith(1)
   })

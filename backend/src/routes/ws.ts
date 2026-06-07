@@ -1,22 +1,10 @@
-import { config } from '@backend/config'
 import { Handler } from '@backend/core/handler'
 import { logger } from '@backend/core/logger'
+import { redisPlugin } from '@backend/core/redis'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
 import { ClientMessage, ServerMessage } from '@backend/types/ws'
 import Elysia, { ValidationError } from 'elysia'
-import { Redis } from 'ioredis'
-
-class LazyRedis {
-  private _client: Redis | null = null
-
-  get client(): Redis {
-    this._client ??= new Redis(config.redisUrl)
-    return this._client
-  }
-}
-
-export const redisPlugin = new Elysia({ name: 'redis' }).decorate('redis', new LazyRedis())
 
 const connections = new Map<string, Handler>()
 

@@ -1,6 +1,7 @@
 import { config } from '@backend/config'
 import { encryptAccessToken } from '@backend/core/crypto'
 import { logger } from '@backend/core/logger'
+import { RATE_LIMIT_DEFAULT } from '@backend/core/rateLimiter'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
 import { enqueueUpload } from '@backend/workers/queue'
@@ -214,7 +215,13 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
         const results = await Promise.allSettled(
           newUploadIds.map((uploadId, i) =>
             enqueueUpload(
-              { uploadId, batchId: newBatchId, editGroupId, userid: session.user!.sub },
+              {
+                uploadId,
+                batchId: newBatchId,
+                editGroupId,
+                userid: session.user!.sub,
+                rateLimit: RATE_LIMIT_DEFAULT,
+              },
               i * 1000,
             ).then(async (jobId) => {
               await uploads.updateJobTaskId(uploadId, jobId)

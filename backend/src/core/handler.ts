@@ -231,7 +231,13 @@ export class Handler {
           this.redis,
         )
         const jobId = await enqueueUpload(
-          { uploadId, batchId: newBatchId, editGroupId, userid: this.userid },
+          {
+            uploadId,
+            batchId: newBatchId,
+            editGroupId,
+            userid: this.userid,
+            rateLimit: rateLimitRetry,
+          },
           delayMs,
         )
         await this.services.uploads.updateJobTaskId(uploadId, jobId)
@@ -521,6 +527,7 @@ export class Handler {
               batchId: data.batchid,
               editGroupId: batch.edit_group_id!,
               userid: this.userid,
+              rateLimit,
             },
             delayMs,
           )
