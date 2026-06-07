@@ -153,6 +153,33 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     ).rejects.toBeInstanceOf(DuplicateUploadError)
   })
 
+  it('throws StorageError when final commit returns an internal_api_error_ (e.g. UploadChunkFileException)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => {
+      call++
+      if (call === 1)
+        return { upload: { filekey: 'stash-key', result: 'Continue' } }
+      return {
+        error: {
+          code: 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+          info: '[guid] Caught exception of type MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+        },
+      }
+    })
+    globalThis.fetch = mock(
+      async () => new Response(Buffer.from('data'), { status: 200 }),
+    ) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    await expect(
+      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
+    ).rejects.toBeInstanceOf(StorageError)
+  })
+
   it('throws StorageError when chunk upload returns an internal_api_error_ (e.g. UploadChunkFileException)', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing

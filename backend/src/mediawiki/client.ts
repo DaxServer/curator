@@ -283,7 +283,10 @@ export class MediaWikiClient {
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
             continue
           }
-          if (errorObj.code === 'uploadstash-exception')
+          if (
+            errorObj.code === 'uploadstash-exception' ||
+            errorObj.code === 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException'
+          )
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload commit failed')
         }
