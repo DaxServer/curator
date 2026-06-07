@@ -1,5 +1,5 @@
 import { makeRedisMock } from '@backend/__tests__/helpers'
-import { DuplicateUploadError, HashLockError, SourceCdnError } from '@backend/core/errors'
+import { DuplicateUploadError, HashLockError, SourceCdnError, StorageError } from '@backend/core/errors'
 import { MediaWikiClient } from '@backend/mediawiki/client'
 import { describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
@@ -151,6 +151,27 @@ describe('MediaWikiClient.uploadFile error paths', () => {
         1,
       ),
     ).rejects.toBeInstanceOf(DuplicateUploadError)
+  })
+
+  it('throws StorageError when chunk upload returns an internal_api_error_ (e.g. UploadChunkFileException)', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: {
+        code: 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+        info: '[efdd458b-06ac-4570-9de1-ae31ca930397] Caught exception of type MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+      },
+    }))
+    globalThis.fetch = mock(
+      async () => new Response(Buffer.from('data'), { status: 200 }),
+    ) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    await expect(
+      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
+    ).rejects.toBeInstanceOf(StorageError)
   })
 
   it('throws HashLockError when lock is already held', async () => {

@@ -249,7 +249,10 @@ export class MediaWikiClient {
         const result = await this.apiUploadChunk(formData)
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
-          if (errorObj.code === 'uploadstash-exception')
+          if (
+            errorObj.code === 'uploadstash-exception' ||
+            errorObj.code === 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException'
+          )
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload chunk failed')
         }
