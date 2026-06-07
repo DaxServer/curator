@@ -32,22 +32,26 @@ export function elapsed(start: bigint): string {
   return formatDuration(Number(process.hrtime.bigint() - start))
 }
 
+const requestTimings = new WeakMap<Request, bigint>()
+
 export const elysiaLogger = new Elysia({ name: 'elysia-logger' })
-  .state('beforeTime', process.hrtime.bigint())
-  .onBeforeHandle({ as: 'global' }, ({ store }) => {
-    store.beforeTime = process.hrtime.bigint()
+  .onRequest(({ request }) => {
+    requestTimings.set(request, process.hrtime.bigint())
   })
-  .onAfterHandle({ as: 'global' }, ({ request, store, set }) => {
+  .onAfterHandle({ as: 'global' }, ({ request, set }) => {
     const status = Number(set.status ?? 200)
+    const start = requestTimings.get(request) ?? process.hrtime.bigint()
     logger.info(
-      `${request.method} ${new URL(request.url).pathname} ${status} | ${elapsed(store.beforeTime)}`,
+      `${request.method} ${new URL(request.url).pathname} ${status} | ${elapsed(start)}`,
     )
   })
-  .onError({ as: 'global' }, ({ request, error, store }) => {
+  .onError({ as: 'global' }, ({ request, error }) => {
     const status = 'status' in error ? (error as { status: number }).status : 500
     const message = error instanceof Error ? error.message : ''
+    const start = requestTimings.get(request) ?? process.hrtime.bigint()
     logger.error(
       { err: error },
-      `${request.method} ${new URL(request.url).pathname} ${status} ${message} | ${elapsed(store.beforeTime)}`,
+      `${request.method} ${new URL(request.url).pathname} ${status} ${message} | ${elapsed(start)}`,
     )
   })
+  .as('global')
