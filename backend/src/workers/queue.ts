@@ -23,6 +23,15 @@ function getUploadQueue(): Queue<UploadJobData> {
   return _queue
 }
 
+export function formatDelayMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const secs = ms / 1000
+  if (secs < 60) return `${parseFloat(secs.toFixed(1))}s`
+  const mins = secs / 60
+  if (mins < 60) return `${parseFloat(mins.toFixed(1))}min`
+  return `${parseFloat((mins / 60).toFixed(1))}h`
+}
+
 export async function enqueueUpload(data: UploadJobData, delayMs: number): Promise<string> {
   const job = await getUploadQueue().add('upload', data, {
     delay: Math.round(delayMs),
@@ -33,7 +42,7 @@ export async function enqueueUpload(data: UploadJobData, delayMs: number): Promi
     removeOnFail: { age: 86400 * 7 },
   })
   logger.info(
-    `[worker] upload ${data.uploadId} enqueued (job: ${job.id}, batch: ${data.batchId}, delay: ${Math.round(delayMs)}ms)`,
+    `[worker] upload ${data.uploadId} enqueued (job: ${job.id}, batch: ${data.batchId}, delay: ${formatDelayMs(delayMs)})`,
   )
   return job.id!
 }

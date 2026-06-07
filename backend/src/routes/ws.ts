@@ -1,5 +1,5 @@
 import { Handler } from '@backend/core/handler'
-import { logger } from '@backend/core/logger'
+import { elapsed, logger } from '@backend/core/logger'
 import { redisPlugin } from '@backend/core/redis'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
@@ -44,7 +44,7 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
       connections.set(ws.id, handler)
       logger.info(`[ws] user ${user.username} connected`)
     },
-    message(ws, body) {
+    async message(ws, body) {
       if (!ws.data.session.user) {
         ws.close(1008, 'Unauthorized')
         return
@@ -54,19 +54,25 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
         ws.close(1011, 'Handler not initialized')
         return
       }
-      logger.info(`[ws] ${body.type} from ${ws.data.session.user.username}`)
+      const { username } = ws.data.session.user
+      logger.info(`[ws] ${body.type} from ${username}`)
+      const start = process.hrtime.bigint()
       switch (body.type) {
         case 'FETCH_BATCHES':
-          handler.fetchBatches(body.data)
+          await handler.fetchBatches(body.data)
+          logger.info(`[ws] FETCH_BATCHES from ${username} | ${elapsed(start)}`)
           break
         case 'FETCH_BATCH_UPLOADS':
-          handler.fetchBatchUploads(body.data)
+          await handler.fetchBatchUploads(body.data)
+          logger.info(`[ws] FETCH_BATCH_UPLOADS from ${username} | ${elapsed(start)}`)
           break
         case 'RETRY_UPLOADS':
-          handler.retryUploads(body.data)
+          await handler.retryUploads(body.data)
+          logger.info(`[ws] RETRY_UPLOADS from ${username} | ${elapsed(start)}`)
           break
         case 'CANCEL_BATCH':
-          handler.cancelBatch(body.data)
+          await handler.cancelBatch(body.data)
+          logger.info(`[ws] CANCEL_BATCH from ${username} | ${elapsed(start)}`)
           break
         case 'SUBSCRIBE_BATCH':
           handler.subscribeBatch(body.data)
@@ -81,31 +87,40 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
           handler.unsubscribeBatchesList()
           break
         case 'CREATE_BATCH':
-          handler.createBatch()
+          await handler.createBatch()
+          logger.info(`[ws] CREATE_BATCH from ${username} | ${elapsed(start)}`)
           break
         case 'DELETE_PRESET':
-          handler.deletePreset(body.data.preset_id)
+          await handler.deletePreset(body.data.preset_id)
+          logger.info(`[ws] DELETE_PRESET from ${username} | ${elapsed(start)}`)
           break
         case 'FETCH_IMAGES':
-          handler.fetchImages(body.data, body.handler)
+          await handler.fetchImages(body.data, body.handler)
+          logger.info(`[ws] FETCH_IMAGES from ${username} | ${elapsed(start)}`)
           break
         case 'FETCH_PRESETS':
-          handler.fetchPresets(body.data.handler)
+          await handler.fetchPresets(body.data.handler)
+          logger.info(`[ws] FETCH_PRESETS from ${username} | ${elapsed(start)}`)
           break
         case 'SAVE_PRESET':
-          handler.savePreset(body.data)
+          await handler.savePreset(body.data)
+          logger.info(`[ws] SAVE_PRESET from ${username} | ${elapsed(start)}`)
           break
         case 'UPLOAD_SLICE':
-          handler.uploadSlice(body.data)
+          await handler.uploadSlice(body.data)
+          logger.info(`[ws] UPLOAD_SLICE from ${username} | ${elapsed(start)}`)
           break
         case 'CHECK_CATEGORIES_DELETED':
-          handler.checkCategoriesDeleted(body.data.titles)
+          await handler.checkCategoriesDeleted(body.data.titles)
+          logger.info(`[ws] CHECK_CATEGORIES_DELETED from ${username} | ${elapsed(start)}`)
           break
         case 'CREATE_CATEGORY':
-          handler.createCategory(body.data.title, body.data.text, body.data.wikidata_qid)
+          await handler.createCategory(body.data.title, body.data.text, body.data.wikidata_qid)
+          logger.info(`[ws] CREATE_CATEGORY from ${username} | ${elapsed(start)}`)
           break
         case 'RECATEGORIZE_FILES':
-          handler.recategorizeFiles(body.data.source, body.data.target)
+          await handler.recategorizeFiles(body.data.source, body.data.target)
+          logger.info(`[ws] RECATEGORIZE_FILES from ${username} | ${elapsed(start)}`)
           break
       }
     },

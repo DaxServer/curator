@@ -21,6 +21,7 @@ import {
 import {
   enqueueUpload as defaultEnqueueUpload,
   removeUploadJob as defaultRemoveUploadJob,
+  formatDelayMs,
   type UploadJobData,
 } from '@backend/workers/queue'
 import { Worker } from 'bullmq'
@@ -273,7 +274,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
           await removeUploadJobFn(job.id!)
           const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
           logger.info(
-            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${delay}ms)`,
+            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${formatDelayMs(delay)})`,
           )
           await enqueueUploadFn({ ...job.data, requeueCount: count + 1 }, delay)
           return

@@ -6,7 +6,7 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
-import { logger } from '@backend/core/logger'
+import { elapsed, logger } from '@backend/core/logger'
 import { buildAuthHeader } from '@backend/core/oauthClient'
 import type { Redis } from 'ioredis'
 import { createHash } from 'node:crypto'
@@ -60,6 +60,7 @@ export class MediaWikiClient {
   }
 
   async createPage(title: string, text: string): Promise<string> {
+    const start = process.hrtime.bigint()
     const token = await this.getCsrfToken()
     const result = await this.apiRequest({ action: 'edit' }, 'POST', {
       title,
@@ -69,13 +70,13 @@ export class MediaWikiClient {
     })
     if (result.error) {
       if ((result.error as Record<string, string>).code === 'articleexists') {
-        logger.info(`[mw] page already exists: ${title}`)
+        logger.info(`[mw] page already exists: ${title} | ${elapsed(start)}`)
         return title
       }
       throw new Error((result.error as Record<string, string>).info ?? 'Edit failed')
     }
     const createdTitle = (result.edit as Record<string, string>).title as string
-    logger.info(`[mw] page created: ${createdTitle}`)
+    logger.info(`[mw] page created: ${createdTitle} | ${elapsed(start)}`)
     return createdTitle
   }
 
@@ -100,6 +101,7 @@ export class MediaWikiClient {
     }
     const titles: string[] = []
     let params = { ...baseParams }
+    const start = process.hrtime.bigint()
     while (true) {
       const result = await this.apiRequest(params)
       if (result.error)
@@ -112,7 +114,9 @@ export class MediaWikiClient {
         >) ?? []
       for (const m of members) titles.push(m.title!)
       if (!result.continue) {
-        logger.info(`[mw] retrieved ${titles.length} file titles in [[Category:${category}]]`)
+        logger.info(
+          `[mw] retrieved ${titles.length} file titles in [[Category:${category}]] | ${elapsed(start)}`,
+        )
         break
       }
       params = {
@@ -215,6 +219,7 @@ export class MediaWikiClient {
     }
     const sha1 = createHash('sha1').update(buffer).digest('hex')
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
+    const start = process.hrtime.bigint()
     logger.info(`[mw] uploading ${filename} (${buffer.length} bytes, ${totalChunks} chunks)`)
 
     const duplicates = await this.findDuplicates(sha1)
@@ -251,7 +256,10 @@ export class MediaWikiClient {
         const result = await this.apiUploadChunk(formData)
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
-          if (errorObj.code === 'uploadstash-exception' || errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION)
+          if (
+            errorObj.code === 'uploadstash-exception' ||
+            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION
+          )
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload chunk failed')
         }
@@ -282,7 +290,10 @@ export class MediaWikiClient {
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
             continue
           }
-          if (errorObj.code === 'uploadstash-exception' || errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION)
+          if (
+            errorObj.code === 'uploadstash-exception' ||
+            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION
+          )
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload commit failed')
         }
@@ -309,6 +320,7 @@ export class MediaWikiClient {
       const upload = commitResult.upload as Record<string, unknown>
       const imageinfo = upload.imageinfo as Record<string, string>
       await redis.del(lockKey)
+      logger.info(`[mw] uploaded ${filename} | ${elapsed(start)}`)
       return imageinfo.descriptionurl!
     } catch (err) {
       await redis.del(lockKey)
@@ -322,6 +334,7 @@ export class MediaWikiClient {
     labels: Record<string, { language: string; value: string }> | null,
     editSummary: string,
   ): Promise<void> {
+    const start = process.hrtime.bigint()
     const token = await this.getCsrfToken()
     const payload: Record<string, unknown> = {}
     if (claims) payload.claims = claims
@@ -333,10 +346,11 @@ export class MediaWikiClient {
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
-    logger.info(`[mw] sdc applied to ${filename}`)
+    logger.info(`[mw] sdc applied to ${filename} | ${elapsed(start)}`)
   }
 
   async nullEdit(filename: string): Promise<void> {
+    const start = process.hrtime.bigint()
     for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
       try {
         const pageResult = await this.apiRequest({
@@ -360,7 +374,7 @@ export class MediaWikiClient {
           bot: '0',
           token,
         })
-        logger.info(`[mw] null edit on ${filename}`)
+        logger.info(`[mw] null edit on ${filename} | ${elapsed(start)}`)
         return
       } catch (err) {
         if (attempt < STASH_RETRY_LIMIT) {
@@ -394,6 +408,7 @@ export class MediaWikiClient {
   }
 
   async replaceCategoryInPage(title: string, source: string, target: string): Promise<boolean> {
+    const start = process.hrtime.bigint()
     const result = await this.apiRequest({
       action: 'query',
       prop: 'revisions',
@@ -434,7 +449,7 @@ export class MediaWikiClient {
     })
     if (editResult.error) return false
     logger.info(
-      `[mw] recategorized ${title}: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
+      `[mw] recategorized ${title}: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]] | ${elapsed(start)}`,
     )
     return true
   }
