@@ -249,38 +249,44 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   worker.on('failed', async (job, err) => {
     const uploadId = job?.data.uploadId
     const batchId = job?.data.batchId
-    logger.error(
-      { jobId: job?.id, err },
-      `[worker] [${uploadId}/${batchId}] job permanently failed`,
-    )
-    if (job) {
-      try {
-        if (err instanceof StorageError) {
-          const count = job.data.requeueCount ?? 0
-          if (count >= MAX_STORAGE_REQUEUE_COUNT) {
-            logger.warn(
-              `[worker] [${uploadId}/${batchId}] StorageError requeue limit reached (${count}), marking failed`,
-            )
-          } else {
-            await uploads.updateUploadStatus(job.data.uploadId, 'queued')
-            await removeUploadJobFn(job.id!)
-            const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
-            logger.info(
-              `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${delay}ms)`,
-            )
-            await enqueueUploadFn({ ...job.data, requeueCount: count + 1 }, delay)
-            return
-          }
+    if (!job) return
+    // BullMQ fires 'failed' on every attempt, not just the final one.
+    // For errors that rely on BullMQ's built-in retry (not StorageError's custom requeue),
+    // skip DB updates on intermediate attempts — the access token must stay intact for retries.
+    if (!(err instanceof StorageError) && job.attemptsMade < (job.opts.attempts ?? 1)) {
+      logger.warn(
+        { jobId: job.id, err },
+        `[worker] [${uploadId}/${batchId}] job attempt failed, will retry`,
+      )
+      return
+    }
+    logger.error({ jobId: job.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)
+    try {
+      if (err instanceof StorageError) {
+        const count = job.data.requeueCount ?? 0
+        if (count >= MAX_STORAGE_REQUEUE_COUNT) {
+          logger.warn(
+            `[worker] [${uploadId}/${batchId}] StorageError requeue limit reached (${count}), marking failed`,
+          )
+        } else {
+          await uploads.updateUploadStatus(job.data.uploadId, 'queued')
+          await removeUploadJobFn(job.id!)
+          const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
+          logger.info(
+            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${delay}ms)`,
+          )
+          await enqueueUploadFn({ ...job.data, requeueCount: count + 1 }, delay)
+          return
         }
-        const message = err instanceof Error ? err.message : 'Unknown error'
-        await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
-        await uploads.clearUploadAccessToken(job.data.uploadId)
-      } catch (dbErr) {
-        logger.error(
-          { jobId: job.id, err: dbErr },
-          `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
-        )
       }
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
+      await uploads.clearUploadAccessToken(job.data.uploadId)
+    } catch (dbErr) {
+      logger.error(
+        { jobId: job.id, err: dbErr },
+        `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
+      )
     }
   })
 
