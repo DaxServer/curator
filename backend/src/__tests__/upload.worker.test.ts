@@ -47,7 +47,13 @@ const mockRedis = {} as Redis
 function makeJob(uploadId: number) {
   return {
     id: `job-${uploadId}`,
-    data: { uploadId, batchId: 1, editGroupId: 'eg-abc', userid: 'user-1' },
+    data: {
+      uploadId,
+      batchId: 1,
+      editGroupId: 'eg-abc',
+      userid: 'user-1',
+      rateLimit: { uploadsPerPeriod: 10, periodSeconds: 60 },
+    },
     attemptsMade: 3,
     opts: { attempts: 3 },
   }
@@ -102,7 +108,6 @@ describe('upload worker — retryable errors escape the processor without a DB u
 describe('upload worker — permanent BullMQ failure marks upload as failed in DB', () => {
   it.each([
     ['HashLockError', new HashLockError('lock already held')],
-    ['StorageError', new StorageError('storage write failed')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
   ])('%s: permanently failed job updates DB status to "failed"', async (_name, error) => {
     const failedHandler = capturedHandlers.get('failed')
@@ -115,6 +120,23 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
       message: error.message,
     })
     expect(mockClearToken).toHaveBeenCalledWith(1)
+  })
+
+  it('StorageError: requeues with the delay returned by the rate limiter', async () => {
+    const mockEnqueue = mock(async () => 'new-job-id')
+    const mockGetDelay = mock(async () => 1500)
+    createUploadWorker(mockRedis, { enqueueUpload: mockEnqueue, getNextUploadDelay: mockGetDelay })
+
+    const failedHandler = capturedHandlers.get('failed')
+    expect(failedHandler).toBeDefined()
+
+    const job = makeJob(1)
+    await failedHandler!(job, new StorageError('storage write failed'))
+
+    expect(mockGetDelay).toHaveBeenCalledWith(job.data.userid, job.data.rateLimit, mockRedis)
+    expect(mockUpdateStatus).not.toHaveBeenCalled()
+    expect(mockClearToken).not.toHaveBeenCalled()
+    expect(mockEnqueue).toHaveBeenCalledWith(job.data, 1500)
   })
 
   it('does not throw when BullMQ passes undefined as the job', async () => {

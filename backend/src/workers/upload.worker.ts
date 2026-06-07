@@ -7,6 +7,8 @@ import {
   StorageError,
 } from '@backend/core/errors'
 import { logger } from '@backend/core/logger'
+import type { RateLimitInfo } from '@backend/core/rateLimiter'
+import { getNextUploadDelay as defaultGetNextUploadDelay } from '@backend/core/rateLimiter'
 import { lazyDb } from '@backend/db/client'
 import { UploadService } from '@backend/db/dal/uploads'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
@@ -16,7 +18,7 @@ import {
   computeLabelsDelta,
   mergeSdcStatements,
 } from '@backend/mediawiki/sdc'
-import type { UploadJobData } from '@backend/workers/queue'
+import { enqueueUpload as defaultEnqueueUpload, type UploadJobData } from '@backend/workers/queue'
 import { Worker } from 'bullmq'
 import type { Redis } from 'ioredis'
 
@@ -27,6 +29,8 @@ export type WorkerDeps = {
   makeClient?: (token: [string, string]) => MediaWikiClient
   makeHandler?: () => MapillaryHandler
   decryptToken?: (cipher: string) => [string, string]
+  enqueueUpload?: (data: UploadJobData, delayMs: number) => Promise<string>
+  getNextUploadDelay?: (userid: string, rateLimit: RateLimitInfo, redis: Redis) => Promise<number>
 }
 
 export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<UploadJobData> {
@@ -34,6 +38,8 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   const makeClient = deps?.makeClient ?? ((token) => new MediaWikiClient(token))
   const makeHandler = deps?.makeHandler ?? (() => new MapillaryHandler())
   const decryptTokenFn = deps?.decryptToken ?? decryptAccessToken
+  const enqueueUploadFn = deps?.enqueueUpload ?? defaultEnqueueUpload
+  const getNextUploadDelayFn = deps?.getNextUploadDelay ?? defaultGetNextUploadDelay
 
   const worker = new Worker<UploadJobData>(
     'uploads',
@@ -43,7 +49,10 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
 
       const upload = await uploads.getUploadById(uploadId)
       if (!upload) {
-        logger.error({ uploadId, batchId }, `[worker] [${uploadId}/${batchId}] upload not found, skipping`)
+        logger.error(
+          { uploadId, batchId },
+          `[worker] [${uploadId}/${batchId}] upload not found, skipping`,
+        )
         return
       }
 
@@ -94,7 +103,9 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       const image = images.find((i) => i.id === upload.key)
 
       if (!image) {
-        logger.warn(`[worker] [${uploadId}/${batchId}] image ${upload.key} not found in mapillary, will retry`)
+        logger.warn(
+          `[worker] [${uploadId}/${batchId}] image ${upload.key} not found in mapillary, will retry`,
+        )
         throw new Error(`Image ${upload.key} not found in Mapillary — will retry`)
       }
 
@@ -181,7 +192,10 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                   )
                 }
               } catch (e) {
-                logger.warn({ uploadId, batchId, err: e }, '[worker] sdc update failed on duplicate')
+                logger.warn(
+                  { uploadId, batchId, err: e },
+                  '[worker] sdc update failed on duplicate',
+                )
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                   type: 'duplicated_sdc_not_updated',
                   links,
@@ -227,9 +241,20 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   worker.on('failed', async (job, err) => {
     const uploadId = job?.data.uploadId
     const batchId = job?.data.batchId
-    logger.error({ jobId: job?.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)
+    logger.error(
+      { jobId: job?.id, err },
+      `[worker] [${uploadId}/${batchId}] job permanently failed`,
+    )
     if (job) {
       try {
+        if (err instanceof StorageError) {
+          const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
+          logger.info(
+            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (delay: ${delay}ms)`,
+          )
+          await enqueueUploadFn(job.data, delay)
+          return
+        }
         const message = err instanceof Error ? err.message : 'Unknown error'
         await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })
         await uploads.clearUploadAccessToken(job.data.uploadId)

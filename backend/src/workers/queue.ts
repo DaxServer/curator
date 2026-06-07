@@ -1,5 +1,6 @@
 import { config } from '@backend/config'
 import { logger } from '@backend/core/logger'
+import type { RateLimitInfo } from '@backend/core/rateLimiter'
 import { Queue } from 'bullmq'
 
 export interface UploadJobData {
@@ -7,6 +8,7 @@ export interface UploadJobData {
   batchId: number
   editGroupId: string
   userid: string
+  rateLimit: RateLimitInfo
 }
 
 const connection = { url: config.redisUrl }

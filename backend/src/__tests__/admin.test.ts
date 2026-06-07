@@ -270,7 +270,13 @@ describe('POST /api/admin/retry', () => {
     expect(body.enqueued_count).toBe(1)
     expect(mockEnqueueUpload).toHaveBeenCalledTimes(1)
     expect(mockEnqueueUpload).toHaveBeenCalledWith(
-      { uploadId: 10, batchId: 5, editGroupId: 'eg-123', userid: '1' },
+      {
+        uploadId: 10,
+        batchId: 5,
+        editGroupId: 'eg-123',
+        userid: '1',
+        rateLimit: { uploadsPerPeriod: 10, periodSeconds: 60 },
+      },
       0,
     )
   })
