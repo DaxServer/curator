@@ -87,6 +87,7 @@ const mockFetchImagesBatch = mock(
 mock.module('@backend/workers/queue', () => ({
   enqueueUpload: mockEnqueueUpload,
   removeUploadJob: mockRemoveUploadJob,
+  formatDelayMs: (ms: number) => `${ms}ms`,
 }))
 
 mock.module('@backend/mediawiki/wikidata', () => ({

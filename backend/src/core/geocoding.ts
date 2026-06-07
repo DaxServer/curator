@@ -1,5 +1,5 @@
 import { config } from '@backend/config'
-import { logger } from '@backend/core/logger'
+import { elapsed, logger } from '@backend/core/logger'
 import type { GeoLocation, MediaImage } from '@backend/types/ws'
 
 class Semaphore {
@@ -71,6 +71,7 @@ export async function reverseGeocodeBatch(images: MediaImage[]): Promise<void> {
     }))
 
   logger.info(`[geocoding] reverse geocoding ${tasks.length} images`)
+  const start = process.hrtime.bigint()
   const results = await Promise.all(tasks.map((t) => t.promise))
 
   let geocoded = 0
@@ -87,5 +88,5 @@ export async function reverseGeocodeBatch(images: MediaImage[]): Promise<void> {
       geocoded++
     }
   }
-  logger.info(`[geocoding] geocoded ${geocoded}/${tasks.length} images`)
+  logger.info(`[geocoding] geocoded ${geocoded}/${tasks.length} images | ${elapsed(start)}`)
 }

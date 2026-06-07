@@ -21,32 +21,37 @@ export const logger = isTest
       }),
     )
 
-function formatDuration(beforeTime: bigint): string {
-  const ns = Number(process.hrtime.bigint() - beforeTime)
+export function formatDuration(ns: number): string {
   if (ns >= 1e9) return `${(ns / 1e9).toFixed(2)}s`
   if (ns >= 1e6) return `${(ns / 1e6).toFixed(0)}ms`
   if (ns >= 1e3) return `${(ns / 1e3).toFixed(0)}us`
   return `${ns}ns`
 }
 
-type LogStore = { beforeTime: bigint }
+export function elapsed(start: bigint): string {
+  return formatDuration(Number(process.hrtime.bigint() - start))
+}
+
+const requestTimings = new WeakMap<Request, bigint>()
 
 export const elysiaLogger = new Elysia({ name: 'elysia-logger' })
-  .state('beforeTime', process.hrtime.bigint())
-  .onBeforeHandle({ as: 'global' }, ({ store }) => {
-    ;(store as LogStore).beforeTime = process.hrtime.bigint()
+  .onRequest(({ request }) => {
+    requestTimings.set(request, process.hrtime.bigint())
   })
-  .onAfterHandle({ as: 'global' }, ({ request, store, set }) => {
+  .onAfterHandle({ as: 'global' }, ({ request, set }) => {
     const status = Number(set.status ?? 200)
+    const start = requestTimings.get(request) ?? process.hrtime.bigint()
     logger.info(
-      `${request.method} ${new URL(request.url).pathname} ${status} | ${formatDuration((store as LogStore).beforeTime)}`,
+      `${request.method} ${new URL(request.url).pathname} ${status} | ${elapsed(start)}`,
     )
   })
-  .onError({ as: 'global' }, ({ request, error, store }) => {
+  .onError({ as: 'global' }, ({ request, error }) => {
     const status = 'status' in error ? (error as { status: number }).status : 500
     const message = error instanceof Error ? error.message : ''
+    const start = requestTimings.get(request) ?? process.hrtime.bigint()
     logger.error(
       { err: error },
-      `${request.method} ${new URL(request.url).pathname} ${status} ${message} | ${formatDuration((store as LogStore).beforeTime)}`,
+      `${request.method} ${new URL(request.url).pathname} ${status} ${message} | ${elapsed(start)}`,
     )
   })
+  .as('global')

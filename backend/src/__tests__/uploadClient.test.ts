@@ -1,5 +1,10 @@
 import { makeRedisMock } from '@backend/__tests__/helpers'
-import { DuplicateUploadError, HashLockError, SourceCdnError, StorageError } from '@backend/core/errors'
+import {
+  DuplicateUploadError,
+  HashLockError,
+  SourceCdnError,
+  StorageError,
+} from '@backend/core/errors'
 import { MediaWikiClient, UPLOAD_CHUNK_FILE_EXCEPTION } from '@backend/mediawiki/client'
 import { describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
@@ -26,7 +31,15 @@ function mockImageFetch() {
 }
 
 function callUploadFile(client: MediaWikiClient, redis: Redis) {
-  return client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1)
+  return client.uploadFile(
+    'test.jpg',
+    'https://cdn.example/test.jpg',
+    'wikitext',
+    'summary',
+    redis,
+    1,
+    1,
+  )
 }
 
 function makeChunkUploadClient() {
