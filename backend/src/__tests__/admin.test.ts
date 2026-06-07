@@ -17,6 +17,7 @@ const mockEnqueueUpload = mock(async () => 'job-1')
 mock.module('@backend/workers/queue', () => ({
   enqueueUpload: mockEnqueueUpload,
   removeUploadJob: mock(async () => {}),
+  formatDelayMs: (ms: number) => `${ms}ms`,
 }))
 
 // Import AFTER mock.module()
