@@ -1,6 +1,6 @@
 import { makeRedisMock } from '@backend/__tests__/helpers'
 import { DuplicateUploadError, HashLockError, SourceCdnError, StorageError } from '@backend/core/errors'
-import { MediaWikiClient } from '@backend/mediawiki/client'
+import { MediaWikiClient, UPLOAD_CHUNK_FILE_EXCEPTION } from '@backend/mediawiki/client'
 import { describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
 
@@ -17,6 +17,26 @@ function mockFetchSequence(responses: { body: unknown; status?: number }[]) {
     call++
     return new Response(JSON.stringify(r.body), { status: r.status ?? 200 })
   }) as unknown as typeof fetch
+}
+
+function mockImageFetch() {
+  globalThis.fetch = mock(
+    async () => new Response(Buffer.from('data'), { status: 200 }),
+  ) as unknown as typeof fetch
+}
+
+function callUploadFile(client: MediaWikiClient, redis: Redis) {
+  return client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1)
+}
+
+function makeChunkUploadClient() {
+  const client = new MediaWikiClient(['key', 'secret'])
+  // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+  ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+  client.findDuplicates = mock(async () => [])
+  mockImageFetch()
+  const { redis } = makeRedisMock()
+  return { client, redis }
 }
 
 describe('MediaWikiClient.uploadFile hash lock TTL', () => {
@@ -73,17 +93,7 @@ describe('MediaWikiClient.uploadFile error paths', () => {
       throw err
     }) as unknown as typeof fetch
     const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile(
-        'test.jpg',
-        'https://cdn.example/test.jpg',
-        'wikitext',
-        'summary',
-        redis,
-        1,
-        1,
-      ),
-    ).rejects.toBeInstanceOf(SourceCdnError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(SourceCdnError)
   })
 
   it('throws SourceCdnError when source CDN resets connection during body streaming (ECONNRESET on arrayBuffer)', async () => {
@@ -101,34 +111,14 @@ describe('MediaWikiClient.uploadFile error paths', () => {
       } as unknown as Response
     }) as unknown as typeof fetch
     const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile(
-        'test.jpg',
-        'https://cdn.example/test.jpg',
-        'wikitext',
-        'summary',
-        redis,
-        1,
-        1,
-      ),
-    ).rejects.toBeInstanceOf(SourceCdnError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(SourceCdnError)
   })
 
   it('throws SourceCdnError when source URL returns 5xx', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     mockFetch({}, 503)
     const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile(
-        'test.jpg',
-        'https://cdn.example/test.jpg',
-        'wikitext',
-        'summary',
-        redis,
-        1,
-        1,
-      ),
-    ).rejects.toBeInstanceOf(SourceCdnError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(SourceCdnError)
   })
 
   it('throws DuplicateUploadError when SHA1 duplicate exists', async () => {
@@ -136,94 +126,50 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     client.findDuplicates = mock(async () => [
       { title: 'File:existing.jpg', url: 'https://commons.example/existing.jpg' },
     ])
-    globalThis.fetch = mock(
-      async () => new Response(Buffer.from('data'), { status: 200 }),
-    ) as unknown as typeof fetch
+    mockImageFetch()
     const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile(
-        'test.jpg',
-        'https://cdn.example/test.jpg',
-        'wikitext',
-        'summary',
-        redis,
-        1,
-        1,
-      ),
-    ).rejects.toBeInstanceOf(DuplicateUploadError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(DuplicateUploadError)
   })
 
-  it('throws StorageError when final commit returns an internal_api_error_ (e.g. UploadChunkFileException)', async () => {
-    const client = new MediaWikiClient(['key', 'secret'])
+  it('throws StorageError when chunk upload returns UploadChunkFileException', async () => {
+    const { client, redis } = makeChunkUploadClient()
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
-    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
-    client.findDuplicates = mock(async () => [])
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: {
+        code: UPLOAD_CHUNK_FILE_EXCEPTION,
+        info: '[efdd458b-06ac-4570-9de1-ae31ca930397] Caught exception of type MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+      },
+    }))
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('throws StorageError when final commit returns UploadChunkFileException', async () => {
+    const { client, redis } = makeChunkUploadClient()
     let call = 0
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
     ;(client as any).apiUploadChunk = mock(async () => {
-      call++
-      if (call === 1)
-        return { upload: { filekey: 'stash-key', result: 'Continue' } }
+      if (++call === 1) return { upload: { filekey: 'stash-key', result: 'Continue' } }
       return {
         error: {
-          code: 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException',
+          code: UPLOAD_CHUNK_FILE_EXCEPTION,
           info: '[guid] Caught exception of type MediaWiki\\Upload\\Exception\\UploadChunkFileException',
         },
       }
     })
-    globalThis.fetch = mock(
-      async () => new Response(Buffer.from('data'), { status: 200 }),
-    ) as unknown as typeof fetch
-    const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
-    ).rejects.toBeInstanceOf(StorageError)
-  })
-
-  it('throws StorageError when chunk upload returns an internal_api_error_ (e.g. UploadChunkFileException)', async () => {
-    const client = new MediaWikiClient(['key', 'secret'])
-    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
-    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
-    client.findDuplicates = mock(async () => [])
-    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
-    ;(client as any).apiUploadChunk = mock(async () => ({
-      error: {
-        code: 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException',
-        info: '[efdd458b-06ac-4570-9de1-ae31ca930397] Caught exception of type MediaWiki\\Upload\\Exception\\UploadChunkFileException',
-      },
-    }))
-    globalThis.fetch = mock(
-      async () => new Response(Buffer.from('data'), { status: 200 }),
-    ) as unknown as typeof fetch
-    const { redis } = makeRedisMock()
-    await expect(
-      client.uploadFile('test.jpg', 'https://cdn.example/test.jpg', 'wikitext', 'summary', redis, 1, 1),
-    ).rejects.toBeInstanceOf(StorageError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
   })
 
   it('throws HashLockError when lock is already held', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     client.findDuplicates = mock(async () => [])
-    globalThis.fetch = mock(
-      async () => new Response(Buffer.from('data'), { status: 200 }),
-    ) as unknown as typeof fetch
+    mockImageFetch()
     const setMock = mock(async () => null) // null = lock already held
     const redis = {
       get: mock(async () => null),
       set: setMock,
       del: mock(async () => 1),
     } as unknown as Redis
-    await expect(
-      client.uploadFile(
-        'test.jpg',
-        'https://cdn.example/test.jpg',
-        'wikitext',
-        'summary',
-        redis,
-        1,
-        1,
-      ),
-    ).rejects.toBeInstanceOf(HashLockError)
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(HashLockError)
   })
 })
 

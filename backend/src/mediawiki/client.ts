@@ -14,6 +14,8 @@ import { createHash } from 'node:crypto'
 const CHUNK_SIZE = 1024 * 1024
 const STASH_RETRY_LIMIT = 2
 const STASH_RETRY_DELAY_MS = 2000
+export const UPLOAD_CHUNK_FILE_EXCEPTION =
+  'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException'
 
 export class MediaWikiClient {
   private accessToken: [string, string]
@@ -249,10 +251,7 @@ export class MediaWikiClient {
         const result = await this.apiUploadChunk(formData)
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
-          if (
-            errorObj.code === 'uploadstash-exception' ||
-            errorObj.code === 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException'
-          )
+          if (errorObj.code === 'uploadstash-exception' || errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION)
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload chunk failed')
         }
@@ -283,10 +282,7 @@ export class MediaWikiClient {
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
             continue
           }
-          if (
-            errorObj.code === 'uploadstash-exception' ||
-            errorObj.code === 'internal_api_error_MediaWiki\\Upload\\Exception\\UploadChunkFileException'
-          )
+          if (errorObj.code === 'uploadstash-exception' || errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION)
             throw new StorageError(errorObj.info ?? 'Stash exception')
           throw new Error(errorObj.info ?? 'Upload commit failed')
         }
