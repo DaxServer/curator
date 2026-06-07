@@ -18,18 +18,25 @@ import {
   computeLabelsDelta,
   mergeSdcStatements,
 } from '@backend/mediawiki/sdc'
-import { enqueueUpload as defaultEnqueueUpload, type UploadJobData } from '@backend/workers/queue'
+import {
+  enqueueUpload as defaultEnqueueUpload,
+  removeUploadJob as defaultRemoveUploadJob,
+  type UploadJobData,
+} from '@backend/workers/queue'
 import { Worker } from 'bullmq'
 import type { Redis } from 'ioredis'
 
 const buildEditSummary = (imageKey: string, batchId: number, editGroupId: string) =>
   `Uploaded via Curator from Mapillary image ${imageKey} (batch ${batchId}) ([[:toolforge:editgroups-commons/b/curator/${editGroupId}|details]])`
 
+const MAX_STORAGE_REQUEUE_COUNT = 5
+
 export type WorkerDeps = {
   makeClient?: (token: [string, string]) => MediaWikiClient
   makeHandler?: () => MapillaryHandler
   decryptToken?: (cipher: string) => [string, string]
   enqueueUpload?: (data: UploadJobData, delayMs: number) => Promise<string>
+  removeUploadJob?: (jobId: string) => Promise<void>
   getNextUploadDelay?: (userid: string, rateLimit: RateLimitInfo, redis: Redis) => Promise<number>
 }
 
@@ -39,6 +46,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   const makeHandler = deps?.makeHandler ?? (() => new MapillaryHandler())
   const decryptTokenFn = deps?.decryptToken ?? decryptAccessToken
   const enqueueUploadFn = deps?.enqueueUpload ?? defaultEnqueueUpload
+  const removeUploadJobFn = deps?.removeUploadJob ?? defaultRemoveUploadJob
   const getNextUploadDelayFn = deps?.getNextUploadDelay ?? defaultGetNextUploadDelay
 
   const worker = new Worker<UploadJobData>(
@@ -248,12 +256,21 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
     if (job) {
       try {
         if (err instanceof StorageError) {
-          const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
-          logger.info(
-            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (delay: ${delay}ms)`,
-          )
-          await enqueueUploadFn(job.data, delay)
-          return
+          const count = job.data.requeueCount ?? 0
+          if (count >= MAX_STORAGE_REQUEUE_COUNT) {
+            logger.warn(
+              `[worker] [${uploadId}/${batchId}] StorageError requeue limit reached (${count}), marking failed`,
+            )
+          } else {
+            await uploads.updateUploadStatus(job.data.uploadId, 'queued')
+            await removeUploadJobFn(job.id!)
+            const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
+            logger.info(
+              `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${delay}ms)`,
+            )
+            await enqueueUploadFn({ ...job.data, requeueCount: count + 1 }, delay)
+            return
+          }
         }
         const message = err instanceof Error ? err.message : 'Unknown error'
         await uploads.updateUploadStatus(job.data.uploadId, 'failed', { type: 'error', message })

@@ -9,6 +9,7 @@ export interface UploadJobData {
   editGroupId: string
   userid: string
   rateLimit: RateLimitInfo
+  requeueCount?: number
 }
 
 const connection = { url: config.redisUrl }
