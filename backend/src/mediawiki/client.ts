@@ -313,6 +313,10 @@ export class MediaWikiClient {
             `Duplicate detected during commit (uploadId=${uploadId})`,
           )
         }
+        logger.warn(
+          { uploadId, filename, result: upload.result, warnings },
+          `[mw] unexpected upload result during commit`,
+        )
         throw new Error(`Unexpected upload result: ${upload.result}`)
       }
 

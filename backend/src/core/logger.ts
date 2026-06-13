@@ -41,9 +41,7 @@ export const elysiaLogger = new Elysia({ name: 'elysia-logger' })
   .onAfterHandle({ as: 'global' }, ({ request, set }) => {
     const status = Number(set.status ?? 200)
     const start = requestTimings.get(request) ?? process.hrtime.bigint()
-    logger.info(
-      `${request.method} ${new URL(request.url).pathname} ${status} | ${elapsed(start)}`,
-    )
+    logger.info(`${request.method} ${new URL(request.url).pathname} ${status} | ${elapsed(start)}`)
   })
   .onError({ as: 'global' }, ({ request, error }) => {
     const status = 'status' in error ? (error as { status: number }).status : 500
