@@ -20,6 +20,22 @@ mock.module('@backend/workers/queue', () => ({
   formatDelayMs: (ms: number) => `${ms}ms`,
 }))
 
+const mockPublishWorkerShutdown = mock(async () => {})
+
+mock.module('@backend/workers/signal', () => ({
+  WORKER_SHUTDOWN_CHANNEL: 'worker:shutdown',
+  publishWorkerShutdown: mockPublishWorkerShutdown,
+  subscribeWorkerShutdown: (
+    redis: { subscribe: (ch: string) => void; on: (ev: string, fn: (ch: string) => void) => void },
+    onShutdown: () => void,
+  ) => {
+    redis.subscribe('worker:shutdown')
+    redis.on('message', (channel: string) => {
+      if (channel === 'worker:shutdown') onShutdown()
+    })
+  },
+}))
+
 // Import AFTER mock.module()
 const { adminRoutes } = await import('@backend/routes/admin')
 
@@ -310,5 +326,41 @@ describe('POST /api/admin/retry', () => {
       }),
     )
     expect(res.status).toBe(401)
+  })
+})
+
+describe('POST /api/admin/restart-worker', () => {
+  it('returns 200 and publishes shutdown signal for admin', async () => {
+    mockPublishWorkerShutdown.mockClear()
+    const { app, m } = makeTestApp()
+    const cookie = seedSession(m)
+    const res = await app.handle(
+      new Request('http://localhost/api/admin/restart-worker', {
+        method: 'POST',
+        headers: { cookie },
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(mockPublishWorkerShutdown).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns 401 for unauthenticated request', async () => {
+    const { app } = makeTestApp()
+    const res = await app.handle(
+      new Request('http://localhost/api/admin/restart-worker', { method: 'POST' }),
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 403 for non-admin user', async () => {
+    const { app, m } = makeTestApp()
+    const cookie = seedSession(m, 'OtherUser', '99')
+    const res = await app.handle(
+      new Request('http://localhost/api/admin/restart-worker', {
+        method: 'POST',
+        headers: { cookie },
+      }),
+    )
+    expect(res.status).toBe(403)
   })
 })

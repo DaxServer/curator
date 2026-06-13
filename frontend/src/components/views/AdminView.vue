@@ -11,9 +11,34 @@ const {
   updateAdminUploadRequest,
   cancelSelected,
   markSelectedAsFailed,
+  restartWorker,
   clearText,
   clearAll,
 } = useAdmin()
+
+const restartingWorker = ref(false)
+
+const handleRestartWorker = async () => {
+  restartingWorker.value = true
+  try {
+    await restartWorker()
+    toast.add({
+      severity: 'success',
+      summary: 'Restart signal sent',
+      detail: 'Worker will restart after finishing any active job',
+      life: 4000,
+    })
+  } catch {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Failed to send restart signal',
+      life: 3000,
+    })
+  } finally {
+    restartingWorker.value = false
+  }
+}
 const toast = useToast()
 const { getStatusSeverity, getStatusStyle, getStatusLabel } = useUploadStatus()
 
@@ -167,13 +192,22 @@ onMounted(() => {
           @change="onTableChange"
         />
       </div>
-      <Button
-        as="router-link"
-        to="/admin/failed-uploads"
-        label="Failed Uploads"
-        severity="danger"
-        outlined
-      />
+      <div class="flex items-center gap-2">
+        <Button
+          label="Restart Worker"
+          severity="warn"
+          outlined
+          :loading="restartingWorker"
+          @click="handleRestartWorker"
+        />
+        <Button
+          as="router-link"
+          to="/admin/failed-uploads"
+          label="Failed Uploads"
+          severity="danger"
+          outlined
+        />
+      </div>
     </div>
 
     <!-- Upload requests table with cell editing -->

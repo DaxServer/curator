@@ -124,6 +124,11 @@ export const useAdmin = () => {
     store.selectedUploadRequests = []
   }
 
+  const restartWorker = async (): Promise<void> => {
+    const { status } = await api.api.admin['restart-worker'].post({})
+    if (status !== 200) throw new Error('Failed to send restart signal')
+  }
+
   const clearAll = () => {
     store.adminFilterText = ''
     store.adminStatusFilter = []
@@ -136,6 +141,7 @@ export const useAdmin = () => {
     refreshAdminData,
     cancelSelected,
     markSelectedAsFailed,
+    restartWorker,
     clearText,
     clearAll,
   }
