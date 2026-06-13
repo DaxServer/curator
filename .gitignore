@@ -3,8 +3,9 @@
 .code-review-graph
 .DS_Store
 .env
+.idea
 .vscode
 bun
-docs/superpowers
-node_modules
 curator-server
+docs
+node_modules

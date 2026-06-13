@@ -5,6 +5,7 @@ import { RATE_LIMIT_DEFAULT } from '@backend/core/rateLimiter'
 import { sessionPlugin } from '@backend/core/session'
 import { dbPlugin } from '@backend/db/plugin'
 import { enqueueUpload } from '@backend/workers/queue'
+import { publishWorkerShutdown } from '@backend/workers/signal'
 import Elysia, { t } from 'elysia'
 
 const requireAdmin = new Elysia({ name: 'require-admin' })
@@ -243,3 +244,9 @@ export const adminRoutes = new Elysia({ name: 'admin-routes', prefix: '/api/admi
     },
     { body: t.Object({ upload_ids: t.Array(t.Number()) }) },
   )
+
+  .post('/restart-worker', async ({ user }) => {
+    await publishWorkerShutdown()
+    logger.info(`[admin] ${user.username} sent worker shutdown signal`)
+    return { message: 'Shutdown signal sent' }
+  })
