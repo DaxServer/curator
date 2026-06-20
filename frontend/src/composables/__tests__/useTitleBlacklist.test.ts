@@ -76,10 +76,17 @@ describe('useTitleBlacklist', () => {
     expect(isBlacklisted('Test%2Ffile.jpg')).toBe(true)
   })
 
+  it('should blacklist titles with a space before the extension', () => {
+    expect(isBlacklisted('Example .png')).toBe(true)
+    expect(isBlacklisted('My file .jpg')).toBe(true)
+    expect(isBlacklisted('Photo .jpeg')).toBe(true)
+  })
+
   it('should not blacklist valid titles', () => {
     // Valid titles should not be blacklisted (no remote blacklist checking)
     expect(isBlacklisted('ValidFile.jpg')).toBe(false)
     expect(isBlacklisted('MyPhoto.png')).toBe(false)
     expect(isBlacklisted('Test123.gif')).toBe(false)
+    expect(isBlacklisted('My file.jpg')).toBe(false)
   })
 })
