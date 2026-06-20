@@ -1,5 +1,6 @@
 .claude/*
 !.claude/settings.json
+.mcp.json
 .code-review-graph
 .DS_Store
 .env

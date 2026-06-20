@@ -3,10 +3,6 @@ import { useAuthStore } from '@frontend/stores/auth.store'
 
 const auth = useAuthStore()
 const route = useRoute()
-
-onMounted(async () => {
-  await auth.checkAuth()
-})
 </script>
 
 <template>
