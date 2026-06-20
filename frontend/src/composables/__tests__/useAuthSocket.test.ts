@@ -53,10 +53,20 @@ describe('useAuthSocket', () => {
     scope.stop()
   })
 
+  it('opens socket immediately when already authenticated on init', () => {
+    auth.user = 'DaxServer'
+    const scope = effectScope()
+    scope.run(() => useAuthSocket())
+
+    expect(mockOpen).toHaveBeenCalledTimes(1)
+    scope.stop()
+  })
+
   it('closes socket when user logs out', () => {
     auth.user = 'DaxServer'
     const scope = effectScope()
     scope.run(() => useAuthSocket())
+    expect(mockOpen).toHaveBeenCalledTimes(1)
 
     auth.user = ''
     expect(mockClose).toHaveBeenCalled()
@@ -67,6 +77,7 @@ describe('useAuthSocket', () => {
     auth.user = 'DaxServer'
     const scope = effectScope()
     scope.run(() => useAuthSocket())
+    expect(mockOpen).toHaveBeenCalledTimes(1)
 
     scope.stop()
     expect(mockClose).toHaveBeenCalled()

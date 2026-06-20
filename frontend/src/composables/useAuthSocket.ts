@@ -12,7 +12,7 @@ export function useAuthSocket() {
       if (authenticated) open()
       else close()
     },
-    { flush: 'sync' },
+    { immediate: true, flush: 'sync' },
   )
 
   onScopeDispose(close)
