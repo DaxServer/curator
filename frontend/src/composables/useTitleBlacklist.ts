@@ -37,6 +37,11 @@ export const useTitleBlacklist = () => {
       return true
     }
 
+    // Space immediately before the file extension (e.g. "Example .png")
+    if (/\s+\.[a-zA-Z0-9]+$/.test(title)) {
+      return true
+    }
+
     // 6. Titles containing 3 or more consecutive tildes
     if (/~{3,}/.test(title)) {
       return true
