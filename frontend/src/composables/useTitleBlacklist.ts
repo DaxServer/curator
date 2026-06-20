@@ -37,7 +37,7 @@ export const useTitleBlacklist = () => {
       return true
     }
 
-    // Space immediately before the file extension (e.g. "Example .png")
+    // 5a. Space immediately before the file extension (e.g. "Example .png")
     if (/\s+\.[a-zA-Z0-9]+$/.test(title)) {
       return true
     }

@@ -87,5 +87,6 @@ describe('useTitleBlacklist', () => {
     expect(isBlacklisted('ValidFile.jpg')).toBe(false)
     expect(isBlacklisted('MyPhoto.png')).toBe(false)
     expect(isBlacklisted('Test123.gif')).toBe(false)
+    expect(isBlacklisted('My file.jpg')).toBe(false)
   })
 })
