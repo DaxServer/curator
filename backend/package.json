@@ -16,6 +16,7 @@
   "dependencies": {
     "@elysiajs/eden": "catalog:",
     "drizzle-orm": "catalog:",
+    "drizzle-typebox": "catalog:",
     "elysia": "catalog:",
     "bullmq": "catalog:",
     "ioredis": "catalog:",
