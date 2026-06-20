@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { initCollectionsListeners } from '@frontend/composables/useCollections'
-import { useSocket } from '@frontend/composables/useSocket'
+import { useAuthSocket } from '@frontend/composables/useAuthSocket'
 import { useAuthStore } from '@frontend/stores/auth.store'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 
 const store = useCollectionsStore()
 const auth = useAuthStore()
-const { open } = useSocket
 const isDev = import.meta.env.DEV
 
+useAuthSocket()
 initCollectionsListeners()
-
-onMounted(() => {
-  open()
-})
 </script>
 
 <template>
