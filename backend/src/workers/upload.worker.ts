@@ -259,6 +259,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         { jobId: job.id, err },
         `[worker] [${uploadId}/${batchId}] job attempt failed, will retry`,
       )
+      await uploads.updateUploadStatus(job.data.uploadId, 'queued')
       return
     }
     logger.error({ jobId: job.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)

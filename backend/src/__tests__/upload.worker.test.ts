@@ -106,11 +106,11 @@ describe('upload worker — retryable errors escape the processor without a DB u
 // it calls updateUploadStatus('failed') so the row no longer stays permanently
 // stuck at 'in_progress'.
 
-describe('upload worker — failed handler skips DB on intermediate BullMQ attempt', () => {
+describe('upload worker — failed handler resets status to queued on intermediate BullMQ attempt', () => {
   it.each([
     ['HashLockError', new HashLockError('lock already held')],
     ['SourceCdnError', new SourceCdnError('cdn network error (ECONNRESET)')],
-  ])('%s: does not touch the DB when BullMQ will retry', async (_name, error) => {
+  ])('%s: resets status to queued when BullMQ will retry', async (_name, error) => {
     const failedHandler = capturedHandlers.get('failed')
     expect(failedHandler).toBeDefined()
 
@@ -119,7 +119,7 @@ describe('upload worker — failed handler skips DB on intermediate BullMQ attem
 
     await failedHandler!(job, error)
 
-    expect(mockUpdateStatus).not.toHaveBeenCalled()
+    expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'queued')
     expect(mockClearToken).not.toHaveBeenCalled()
   })
 })
