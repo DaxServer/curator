@@ -17,8 +17,8 @@ const mockSocketImpl = () => ({
 mock.module('@frontend/composables/useSocket', mockSocketImpl)
 mock.module('../useSocket', mockSocketImpl)
 
-import { useAuthStore } from '@frontend/stores/auth.store'
 import type { useAuthSocket as UseAuthSocketType } from '@frontend/composables/useAuthSocket'
+import { useAuthStore } from '@frontend/stores/auth.store'
 import { resolve } from 'node:path'
 
 describe('useAuthSocket', () => {

@@ -133,6 +133,14 @@ const ordinalSuffix = (n: number): string => ordinal(n).slice(-2)
         @click="emit('select:currentPage')"
       />
       <Button
+        class="hover-primary"
+        severity="secondary"
+        outlined
+        label="Unuploaded"
+        :disabled="store.isBatchLoading"
+        @click="store.selectUnuploaded()"
+      />
+      <Button
         v-if="store.selectedCount > 0"
         class="hover-danger-filled"
         severity="danger"
