@@ -253,12 +253,20 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
     if (!job) return
     // BullMQ fires 'failed' on every attempt, not just the final one.
     // For errors that rely on BullMQ's built-in retry (not StorageError's custom requeue),
-    // skip DB updates on intermediate attempts — the access token must stay intact for retries.
+    // reset status to queued on intermediate attempts — the access token must stay intact for retries.
     if (!(err instanceof StorageError) && job.attemptsMade < (job.opts.attempts ?? 1)) {
       logger.warn(
         { jobId: job.id, err },
         `[worker] [${uploadId}/${batchId}] job attempt failed, will retry`,
       )
+      try {
+        await uploads.updateUploadStatus(job.data.uploadId, 'queued')
+      } catch (dbErr) {
+        logger.error(
+          { jobId: job.id, err: dbErr },
+          `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
+        )
+      }
       return
     }
     logger.error({ jobId: job.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)
