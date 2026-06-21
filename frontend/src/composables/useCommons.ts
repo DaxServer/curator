@@ -81,8 +81,9 @@ export const useCommons = () => {
 
     const info = `== {{int:filedesc}} ==
 {{Information
- | date        = ${dateTemplate}
- | source      = ${source}
+ | date         = ${dateTemplate}
+ | source       = ${source}
+ | other_fields = {{information field|Academic context|{{en|1=Geospatial street-level imagery from external site}}}}
 }}
 ${additionalInfo}
 
