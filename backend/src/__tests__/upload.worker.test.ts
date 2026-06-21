@@ -122,6 +122,17 @@ describe('upload worker — failed handler resets status to queued on intermedia
     expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'queued')
     expect(mockClearToken).not.toHaveBeenCalled()
   })
+
+  it('swallows DB errors when resetting status to queued so the handler never rejects', async () => {
+    mockUpdateStatus.mockRejectedValueOnce(new Error('DB connection lost'))
+
+    const failedHandler = capturedHandlers.get('failed')
+    expect(failedHandler).toBeDefined()
+
+    const job = { ...makeJob(1), attemptsMade: 1, opts: { attempts: 3 } }
+
+    await expect(failedHandler!(job, new SourceCdnError('cdn error'))).resolves.toBeUndefined()
+  })
 })
 
 describe('upload worker — permanent BullMQ failure marks upload as failed in DB', () => {
