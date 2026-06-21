@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { initCollectionsListeners } from '@frontend/composables/useCollections'
 import { useAuthSocket } from '@frontend/composables/useAuthSocket'
+import { initCollectionsListeners } from '@frontend/composables/useCollections'
 import { useAuthStore } from '@frontend/stores/auth.store'
 import { useCollectionsStore } from '@frontend/stores/collections.store'
 

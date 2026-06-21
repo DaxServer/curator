@@ -143,6 +143,12 @@ export const useCollectionsStore = defineStore('collections', () => {
     }
   }
 
+  const selectUnuploaded = () => {
+    for (const item of itemsArray.value) {
+      item.meta.selected = item.image.existing.length === 0
+    }
+  }
+
   const toFilterItems = (storeItems: typeof chronoItems.value): FilterItem[] =>
     storeItems.map((item) => ({
       capturedAt: item.image.dates.taken,
@@ -408,6 +414,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     updateSelected,
     selectAll,
     deselectAll,
+    selectUnuploaded,
     selectEveryNth,
     selectByMinInterval,
     selectByMinDistance,

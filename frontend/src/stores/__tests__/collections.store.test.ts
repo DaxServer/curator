@@ -323,6 +323,34 @@ describe('selection methods', () => {
       expect(store.itemsArray.map((i) => i.meta.selected)).toEqual([true, true, true])
     })
   })
+
+  describe('selectUnuploaded', () => {
+    it('selects items with no existing Commons file', () => {
+      const store = useCollectionsStore()
+      const notUploaded = makeItem(1)
+      const uploaded = makeItem(2)
+      uploaded.image.existing = [{ url: 'https://commons.wikimedia.org/wiki/File:Test.jpg' }]
+
+      store.replaceItems({ 'item-1': notUploaded, 'item-2': uploaded })
+
+      store.selectUnuploaded()
+
+      expect(store.itemsArray.map((i) => i.meta.selected)).toEqual([true, false])
+    })
+
+    it('deselects previously selected items that have an existing Commons file', () => {
+      const store = useCollectionsStore()
+      const selected = makeItem(1, true)
+      selected.image.existing = [{ url: 'https://commons.wikimedia.org/wiki/File:Test.jpg' }]
+      const unselected = makeItem(2, false)
+
+      store.replaceItems({ 'item-1': selected, 'item-2': unselected })
+
+      store.selectUnuploaded()
+
+      expect(store.itemsArray.map((i) => i.meta.selected)).toEqual([false, true])
+    })
+  })
 })
 
 describe('collections store — preset state', () => {
