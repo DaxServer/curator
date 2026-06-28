@@ -640,7 +640,9 @@ export class Handler {
     const poll = async () => {
       try {
         const current = await this.services.uploads.getLatestUploadUpdateTime(batchid)
-        if (current && (!lastUpdateTime || current > lastUpdateTime)) {
+        // Use >= to catch uploads that update within the same MySQL second as lastUpdateTime.
+        // Only advance lastUpdateTime on strict > to avoid infinite re-polls at a stale timestamp.
+        if (current && (!lastUpdateTime || current >= lastUpdateTime)) {
           const since = lastUpdateTime ?? new Date(0)
           const changed = await this.services.uploads.getUploadsByBatchChangedSince(batchid, since)
           if (changed.length > 0) {
@@ -651,7 +653,9 @@ export class Handler {
               nonce: nonce(),
             })
           }
-          lastUpdateTime = current
+          if (!lastUpdateTime || current > lastUpdateTime) {
+            lastUpdateTime = current
+          }
         }
         const [total, active] = await Promise.all([
           this.services.batches.countUploadsInBatch(batchid),

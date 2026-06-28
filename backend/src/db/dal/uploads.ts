@@ -11,6 +11,7 @@ import {
   eq,
   getTableColumns,
   gt,
+  gte,
   inArray,
   like,
   lt,
@@ -550,7 +551,7 @@ export class UploadService {
     return this.db
       .select(cols)
       .from(uploadRequests)
-      .where(and(eq(uploadRequests.batchid, batchId), gt(uploadRequests.updated_at, since)))
+      .where(and(eq(uploadRequests.batchid, batchId), gte(uploadRequests.updated_at, since)))
       .orderBy(asc(uploadRequests.id))
   }
 
