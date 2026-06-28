@@ -636,26 +636,26 @@ export class Handler {
   }
 
   private startUploadStream(batchid: number): ReturnType<typeof setTimeout> {
-    let lastUpdateTime: Date | null = null
+    // (updated_at, id) cursor — correctly handles same-second updates without re-sends
+    let cursorTime: Date = new Date(0)
+    let cursorId: number = 0
     const poll = async () => {
       try {
-        const current = await this.services.uploads.getLatestUploadUpdateTime(batchid)
-        // Use >= to catch uploads that update within the same MySQL second as lastUpdateTime.
-        // Only advance lastUpdateTime on strict > to avoid infinite re-polls at a stale timestamp.
-        if (current && (!lastUpdateTime || current >= lastUpdateTime)) {
-          const since = lastUpdateTime ?? new Date(0)
-          const changed = await this.services.uploads.getUploadsByBatchChangedSince(batchid, since)
-          if (changed.length > 0) {
-            this.sender.send({
-              type: 'UPLOADS_UPDATE',
-              data: changed.map(toUploadUpdateItem),
-              partial: true,
-              nonce: nonce(),
-            })
-          }
-          if (!lastUpdateTime || current > lastUpdateTime) {
-            lastUpdateTime = current
-          }
+        const changed = await this.services.uploads.getUploadsByBatchChangedSinceWithIdCursor(
+          batchid,
+          cursorTime,
+          cursorId,
+        )
+        if (changed.length > 0) {
+          this.sender.send({
+            type: 'UPLOADS_UPDATE',
+            data: changed.map(toUploadUpdateItem),
+            partial: true,
+            nonce: nonce(),
+          })
+          const last = changed[changed.length - 1]!
+          cursorTime = last.updated_at
+          cursorId = last.id
         }
         const [total, active] = await Promise.all([
           this.services.batches.countUploadsInBatch(batchid),

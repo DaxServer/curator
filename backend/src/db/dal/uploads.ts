@@ -11,11 +11,9 @@ import {
   eq,
   getTableColumns,
   gt,
-  gte,
   inArray,
   like,
   lt,
-  max,
   or,
   sql,
 } from 'drizzle-orm'
@@ -532,15 +530,11 @@ export class UploadService {
     return { items, total }
   }
 
-  async getLatestUploadUpdateTime(batchId: number): Promise<Date | null> {
-    const [row] = await this.db
-      .select({ t: max(uploadRequests.updated_at) })
-      .from(uploadRequests)
-      .where(eq(uploadRequests.batchid, batchId))
-    return row?.t ?? null
-  }
-
-  async getUploadsByBatchChangedSince(batchId: number, since: Date): Promise<SafeUploadRow[]> {
+  async getUploadsByBatchChangedSinceWithIdCursor(
+    batchId: number,
+    since: Date,
+    minId: number,
+  ): Promise<SafeUploadRow[]> {
     const {
       access_token: _,
       collection: __,
@@ -551,8 +545,16 @@ export class UploadService {
     return this.db
       .select(cols)
       .from(uploadRequests)
-      .where(and(eq(uploadRequests.batchid, batchId), gte(uploadRequests.updated_at, since)))
-      .orderBy(asc(uploadRequests.id))
+      .where(
+        and(
+          eq(uploadRequests.batchid, batchId),
+          or(
+            gt(uploadRequests.updated_at, since),
+            and(eq(uploadRequests.updated_at, since), gt(uploadRequests.id, minId)),
+          ),
+        ),
+      )
+      .orderBy(asc(uploadRequests.updated_at), asc(uploadRequests.id))
   }
 
   async countActiveUploadsInBatch(batchId: number): Promise<number> {
