@@ -386,6 +386,7 @@ export const SubscribedSchema = t.Object({
 export const UploadsUpdateSchema = t.Object({
   type: t.Literal('UPLOADS_UPDATE'),
   data: t.Array(UploadUpdateItemSchema),
+  partial: t.Boolean(),
   nonce: t.String(),
 })
 

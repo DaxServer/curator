@@ -24,14 +24,6 @@ import type { Redis } from 'ioredis'
 
 const BATCH_UPLOADS_PAGE_SIZE = 100
 
-const UPLOAD_DONE_STATUSES = new Set([
-  'completed',
-  'failed',
-  'duplicate',
-  'duplicated_sdc_updated',
-  'duplicated_sdc_not_updated',
-])
-
 const BATCH_RETRIEVAL_CHUNK_SIZE = 100
 
 type SessionUserWithAuth = SessionUser & {
@@ -644,23 +636,28 @@ export class Handler {
   }
 
   private startUploadStream(batchid: number): ReturnType<typeof setTimeout> {
-    let lastSerialized: string | null = null
+    let lastUpdateTime: Date | null = null
     const poll = async () => {
       try {
-        const items = await this.getAllUploadsForBatch(batchid)
-        const updateItems = items.map(toUploadUpdateItem)
-        const serialized = JSON.stringify(updateItems)
-        if (serialized !== lastSerialized) {
-          this.sender.send({
-            type: 'UPLOADS_UPDATE',
-            data: updateItems,
-            nonce: nonce(),
-          })
-          lastSerialized = serialized
+        const current = await this.services.uploads.getLatestUploadUpdateTime(batchid)
+        if (current && (!lastUpdateTime || current > lastUpdateTime)) {
+          const since = lastUpdateTime ?? new Date(0)
+          const changed = await this.services.uploads.getUploadsByBatchChangedSince(batchid, since)
+          if (changed.length > 0) {
+            this.sender.send({
+              type: 'UPLOADS_UPDATE',
+              data: changed.map(toUploadUpdateItem),
+              partial: true,
+              nonce: nonce(),
+            })
+          }
+          lastUpdateTime = current
         }
-        const total = await this.services.batches.countUploadsInBatch(batchid)
-        const completed = items.filter((i) => UPLOAD_DONE_STATUSES.has(i.status)).length
-        if (total > 0 && completed >= total) {
+        const [total, active] = await Promise.all([
+          this.services.batches.countUploadsInBatch(batchid),
+          this.services.uploads.countActiveUploadsInBatch(batchid),
+        ])
+        if (total > 0 && active === 0) {
           this.sender.send({
             type: 'UPLOADS_COMPLETE',
             data: batchid,

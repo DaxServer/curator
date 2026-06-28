@@ -14,6 +14,7 @@ import {
   inArray,
   like,
   lt,
+  max,
   or,
   sql,
 } from 'drizzle-orm'
@@ -528,5 +529,41 @@ export class UploadService {
     const items = allItems.slice(offset, offset + limit)
 
     return { items, total }
+  }
+
+  async getLatestUploadUpdateTime(batchId: number): Promise<Date | null> {
+    const [row] = await this.db
+      .select({ t: max(uploadRequests.updated_at) })
+      .from(uploadRequests)
+      .where(eq(uploadRequests.batchid, batchId))
+    return row?.t ?? null
+  }
+
+  async getUploadsByBatchChangedSince(batchId: number, since: Date): Promise<SafeUploadRow[]> {
+    const {
+      access_token: _,
+      collection: __,
+      copyright_override: ___,
+      celery_task_id: ____,
+      ...cols
+    } = getTableColumns(uploadRequests)
+    return this.db
+      .select(cols)
+      .from(uploadRequests)
+      .where(and(eq(uploadRequests.batchid, batchId), gt(uploadRequests.updated_at, since)))
+      .orderBy(asc(uploadRequests.id))
+  }
+
+  async countActiveUploadsInBatch(batchId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count(uploadRequests.id) })
+      .from(uploadRequests)
+      .where(
+        and(
+          eq(uploadRequests.batchid, batchId),
+          inArray(uploadRequests.status, ['queued', 'in_progress']),
+        ),
+      )
+    return row?.n ?? 0
   }
 }

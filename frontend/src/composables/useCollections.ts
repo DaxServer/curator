@@ -116,7 +116,7 @@ export const initCollectionsListeners = () => {
       }
 
       // Update batch uploads list if present
-      const index = newBatchUploads.findIndex((u) => u.key === update.key)
+      const index = newBatchUploads.findIndex((u) => u.id === update.id)
       if (index !== -1) {
         batchUploadsChanged = true
         const upload = { ...newBatchUploads[index] } as BatchUploadItem
@@ -141,11 +141,13 @@ export const initCollectionsListeners = () => {
           stats: {
             ...store.batch.stats,
             queued: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Queued).length,
-            in_progress: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.InProgress).length,
+            in_progress: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.InProgress)
+              .length,
             completed: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Completed).length,
             failed: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Failed).length,
             cancelled: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Cancelled).length,
-            duplicate: newBatchUploads.filter((u) => isDuplicateStatus(u.status as UploadStatus)).length,
+            duplicate: newBatchUploads.filter((u) => isDuplicateStatus(u.status as UploadStatus))
+              .length,
           },
         }
       }
