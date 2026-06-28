@@ -750,28 +750,40 @@ describe('useCollections Listeners', () => {
   })
 
   describe('onBatchInfo', () => {
+    const makeBatch = (id: number) => ({
+      id,
+      created_at: '',
+      updated_at: '',
+      username: 'alice',
+      userid: '1',
+      edit_group_id: null,
+      stats: {
+        cancelled: 0,
+        completed: 0,
+        duplicate: 0,
+        failed: 0,
+        in_progress: 0,
+        queued: 0,
+        total: 0,
+      },
+    })
+
     it('sets store.batch from BATCH_INFO', () => {
-      const batch = {
-        id: 42,
-        created_at: '',
-        updated_at: '',
-        username: 'alice',
-        userid: '1',
-        edit_group_id: null,
-        stats: {
-          cancelled: 0,
-          completed: 0,
-          duplicate: 0,
-          failed: 0,
-          in_progress: 0,
-          queued: 0,
-          total: 0,
-        },
-      }
+      store.currentBatchId = 42
+      const batch = makeBatch(42)
 
       listeners.onBatchInfo({ batch })
 
       expect(store.batch).toEqual(batch)
+    })
+
+    it('discards stale BATCH_INFO from a previous batch', () => {
+      store.currentBatchId = 5
+      store.batch = undefined
+
+      listeners.onBatchInfo({ batch: makeBatch(99) })
+
+      expect(store.batch).toBeUndefined()
     })
   })
 

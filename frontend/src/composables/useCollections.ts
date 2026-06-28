@@ -221,6 +221,7 @@ export const initCollectionsListeners = () => {
   }
 
   const onBatchInfo = (data: { batch: BatchItem }) => {
+    if (data.batch.id !== store.currentBatchId) return
     store.batch = data.batch
   }
 

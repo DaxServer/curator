@@ -207,7 +207,7 @@ export class Handler {
           nonce: nonce(),
         })
         if (!partial) break
-        offset += BATCH_UPLOADS_PAGE_SIZE
+        offset += pageSize
       }
     })
   }
