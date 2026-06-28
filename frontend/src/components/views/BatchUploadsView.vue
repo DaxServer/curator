@@ -136,8 +136,8 @@ watch(batchId, (newId) => {
   load(newId)
 })
 
-watch(hasPendingJobs, (isActive) => {
-  if (isActive && !isSubscribed.value) {
+watch([hasPendingJobs, () => store.batchUploadsLoading], ([pending, loading]) => {
+  if (pending && !loading && !isSubscribed.value) {
     sendSubscribeBatch(batchId.value)
     isSubscribed.value = true
   }
