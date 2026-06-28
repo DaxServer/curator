@@ -22,6 +22,8 @@ import type {
 import { enqueueUpload, removeUploadJob } from '@backend/workers/queue'
 import type { Redis } from 'ioredis'
 
+const BATCH_UPLOADS_PAGE_SIZE = 100
+
 const UPLOAD_DONE_STATUSES = new Set([
   'completed',
   'failed',
@@ -159,42 +161,61 @@ export class Handler {
     })
   }
 
-  async fetchBatchUploads(batchid: number): Promise<void> {
-    await this.safe('fetchBatchUploads', async () => {
+  async fetchBatch(batchid: number): Promise<void> {
+    await this.safe('fetchBatch', async () => {
       const batch = await this.services.batches.getBatch(batchid)
       if (!batch) {
         this.sendError(`Batch ${batchid} not found`)
         return
       }
-      const uploads = await this.services.uploads.getUploadsByBatch(batchid)
-      logger.info(
-        `[ws] [resp] sending batch ${batchid} (${uploads.length} uploads) for ${this.username}`,
-      )
       this.sender.send({
-        type: 'BATCH_UPLOADS_LIST',
-        data: {
-          batch: { ...batch, username: batch.username ?? '' },
-          uploads: uploads.map((u) => ({
-            id: u.id,
-            batchid: u.batchid,
-            status: u.status as BatchUploadItem['status'],
-            key: u.key,
-            handler: u.handler as BatchUploadItem['handler'],
-            filename: u.filename,
-            wikitext: u.wikitext,
-            error: u.error as BatchUploadItem['error'],
-            success: u.success,
-          })),
-        },
-        nonce: nonce(),
+        type: 'BATCH_INFO',
+        data: { batch: { ...batch, username: batch.username ?? '' } },
       })
+    })
+  }
+
+  async fetchBatchUploads(data: { batch_id: number; page_size: number }): Promise<void> {
+    await this.safe('fetchBatchUploads', async () => {
+      const { batch_id: batchid, page_size: pageSize } = data
+      const batch = await this.services.batches.getBatch(batchid)
+      if (!batch) {
+        this.sendError(`Batch ${batchid} not found`)
+        return
+      }
+      let offset = 0
+      while (true) {
+        const page = await this.services.uploads.getUploadsByBatch(batchid, pageSize, offset)
+        const partial = page.length === pageSize
+        this.sender.send({
+          type: 'BATCH_UPLOADS_LIST',
+          data: {
+            batch_id: batchid,
+            uploads: page.map((u) => ({
+              id: u.id,
+              batchid: u.batchid,
+              status: u.status as BatchUploadItem['status'],
+              key: u.key,
+              handler: u.handler as BatchUploadItem['handler'],
+              filename: u.filename,
+              wikitext: u.wikitext,
+              error: u.error as BatchUploadItem['error'],
+              success: u.success,
+            })),
+            partial,
+          },
+          nonce: nonce(),
+        })
+        if (!partial) break
+        offset += pageSize
+      }
     })
   }
 
   async retryUploads(batchid: number): Promise<void> {
     await this.safe('retryUploads', async () => {
       const encryptedAccessToken = encryptAccessToken(this.user.access_token)
-      const all = await this.services.uploads.getUploadsByBatch(batchid)
+      const all = await this.getAllUploadsForBatch(batchid)
       const failedIds = all.filter((u) => u.status === 'failed').map((u) => u.id)
       if (failedIds.length === 0) {
         logger.info(
@@ -606,11 +627,27 @@ export class Handler {
     })
   }
 
+  private async getAllUploadsForBatch(batchid: number): Promise<SafeUploadRow[]> {
+    const all: SafeUploadRow[] = []
+    let offset = 0
+    while (true) {
+      const page = await this.services.uploads.getUploadsByBatch(
+        batchid,
+        BATCH_UPLOADS_PAGE_SIZE,
+        offset,
+      )
+      all.push(...page)
+      if (page.length < BATCH_UPLOADS_PAGE_SIZE) break
+      offset += BATCH_UPLOADS_PAGE_SIZE
+    }
+    return all
+  }
+
   private startUploadStream(batchid: number): ReturnType<typeof setTimeout> {
     let lastSerialized: string | null = null
     const poll = async () => {
       try {
-        const items = await this.services.uploads.getUploadsByBatch(batchid)
+        const items = await this.getAllUploadsForBatch(batchid)
         const updateItems = items.map(toUploadUpdateItem)
         const serialized = JSON.stringify(updateItems)
         if (serialized !== lastSerialized) {

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { BatchStats, UploadStatus } from '@backend/types/ws'
 import { useBatchSelection } from '@frontend/composables/useBatchSelection'
 import { useCollections } from '@frontend/composables/useCollections'
 import { useCommons } from '@frontend/composables/useCommons'
@@ -10,7 +9,7 @@ import { useCollectionsStore } from '@frontend/stores/collections.store'
 import type { BatchStatsCard } from '@frontend/types/collections'
 import { UPLOAD_STATUS } from '@frontend/types/image'
 
-const batchId = useRouteParams<number>('id')
+const batchId = useRouteParams('id', 0, { transform: Number })
 const router = useRouter()
 
 const authStore = useAuthStore()
@@ -25,8 +24,7 @@ const {
   sendSubscribeBatch,
   sendUnsubscribeBatch,
 } = useCollections()
-const { isDuplicateStatus, getStatusLabel, getStatusColor, getStatusSeverity, getStatusStyle } =
-  useUploadStatus()
+const { getStatusLabel, getStatusColor, getStatusSeverity, getStatusStyle } = useUploadStatus()
 
 const {
   isSelectionMode,
@@ -56,70 +54,61 @@ const selectionColumns = computed(() => {
   return columns
 })
 
-const computedStats = computed((): BatchStats => {
-  const uploads = store.batchUploads
-
-  return {
-    cancelled: uploads.filter((u) => u.status === UPLOAD_STATUS.Cancelled).length,
-    total: uploads.length,
-    completed: uploads.filter((u) => u.status === UPLOAD_STATUS.Completed).length,
-    failed: uploads.filter((u) => u.status === UPLOAD_STATUS.Failed).length,
-    duplicate: uploads.filter((u) => isDuplicateStatus(u.status as UploadStatus)).length,
-    in_progress: uploads.filter((u) => u.status === UPLOAD_STATUS.InProgress).length,
-    queued: uploads.filter((u) => u.status === UPLOAD_STATUS.Queued).length,
-  }
+const statCards = computed((): BatchStatsCard[] => {
+  const stats = store.batch?.stats
+  return [
+    {
+      label: 'Total',
+      count: stats?.total,
+      color: getStatusColor('all'),
+      value: 'all',
+      alwaysActive: store.batch !== undefined,
+    },
+    {
+      label: 'Uploaded',
+      count: stats?.completed,
+      color: getStatusColor(UPLOAD_STATUS.Completed),
+      value: UPLOAD_STATUS.Completed,
+    },
+    {
+      label: 'Failed',
+      count: stats?.failed,
+      color: getStatusColor(UPLOAD_STATUS.Failed),
+      value: UPLOAD_STATUS.Failed,
+    },
+    {
+      label: 'Duplicates',
+      count: stats?.duplicate,
+      color: getStatusColor(UPLOAD_STATUS.Duplicate),
+      value: UPLOAD_STATUS.Duplicate,
+    },
+    {
+      label: 'Processing',
+      count: stats?.in_progress,
+      color: getStatusColor(UPLOAD_STATUS.InProgress),
+      value: UPLOAD_STATUS.InProgress,
+    },
+    {
+      label: 'Queued',
+      count: stats?.queued,
+      color: getStatusColor(UPLOAD_STATUS.Queued),
+      value: UPLOAD_STATUS.Queued,
+    },
+    {
+      label: 'Cancelled',
+      count: stats?.cancelled,
+      color: getStatusColor(UPLOAD_STATUS.Cancelled),
+      value: UPLOAD_STATUS.Cancelled,
+    },
+  ]
 })
-
-const statCards = computed((): BatchStatsCard[] => [
-  {
-    label: 'Total',
-    count: computedStats.value.total,
-    color: getStatusColor('all'),
-    value: 'all',
-    alwaysActive: store.batch !== undefined,
-  },
-  {
-    label: 'Uploaded',
-    count: computedStats.value.completed,
-    color: getStatusColor(UPLOAD_STATUS.Completed),
-    value: UPLOAD_STATUS.Completed,
-  },
-  {
-    label: 'Failed',
-    count: computedStats.value.failed,
-    color: getStatusColor(UPLOAD_STATUS.Failed),
-    value: UPLOAD_STATUS.Failed,
-  },
-  {
-    label: 'Duplicates',
-    count: computedStats.value.duplicate,
-    color: getStatusColor(UPLOAD_STATUS.Duplicate),
-    value: UPLOAD_STATUS.Duplicate,
-  },
-  {
-    label: 'Processing',
-    count: computedStats.value.in_progress,
-    color: getStatusColor(UPLOAD_STATUS.InProgress),
-    value: UPLOAD_STATUS.InProgress,
-  },
-  {
-    label: 'Queued',
-    count: computedStats.value.queued,
-    color: getStatusColor(UPLOAD_STATUS.Queued),
-    value: UPLOAD_STATUS.Queued,
-  },
-  {
-    label: 'Cancelled',
-    count: computedStats.value.cancelled,
-    color: getStatusColor(UPLOAD_STATUS.Cancelled),
-    value: UPLOAD_STATUS.Cancelled,
-  },
-])
 
 const { filterValue, searchText, filteredItems } = useDataFilters()
 
 const hasPendingJobs = computed(() => {
-  return computedStats.value.queued > 0 || computedStats.value.in_progress > 0
+  if (!store.batch) return false
+  const { stats } = store.batch
+  return stats.queued > 0 || stats.in_progress > 0
 })
 
 const handleAdminRetrySelectedUploads = async () => {
@@ -210,7 +199,7 @@ onUnmounted(() => {
                 icon="pi pi-spin pi-spinner"
               />
               <Button
-                v-if="computedStats.failed > 0 && authStore.userid === store.batch.userid"
+                v-if="store.batch.stats.failed > 0 && authStore.userid === store.batch.userid"
                 icon="pi pi-refresh"
                 severity="danger"
                 label="Retry Failed"
@@ -219,7 +208,7 @@ onUnmounted(() => {
               />
               <Button
                 v-if="
-                  computedStats.queued > 0 &&
+                  store.batch.stats.queued > 0 &&
                   (authStore.userid === store.batch.userid || authStore.isAdmin)
                 "
                 icon="pi pi-times"
@@ -273,7 +262,6 @@ onUnmounted(() => {
               :label="stat.label"
               :count="stat.count"
               :color="stat.color"
-              :skeleton="store.batch === undefined"
               :always-active="stat.alwaysActive"
               :selected="filterValue === stat.value"
               @click="filterValue = stat.value"
@@ -307,7 +295,9 @@ onUnmounted(() => {
       :value="filteredItems"
       :columns="selectionColumns"
       :row-class="() => ({ 'align-top': true })"
+      :rows="store.uploadPageSize"
       :rows-per-page-options="[10, 20, 50, 100]"
+      @page="store.uploadPageSize = $event.rows"
     >
       <template #header>
         <FilterHeader

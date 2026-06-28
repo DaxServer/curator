@@ -67,6 +67,10 @@ export const wsRoutes = new Elysia({ name: 'ws-routes' })
             await handler.fetchBatchUploads(body.data)
             logger.info(`[ws] FETCH_BATCH_UPLOADS from ${username} | ${elapsed(start)}`)
             break
+          case 'FETCH_BATCH':
+            await handler.fetchBatch(body.data)
+            logger.info(`[ws] FETCH_BATCH from ${username} | ${elapsed(start)}`)
+            break
           case 'RETRY_UPLOADS':
             await handler.retryUploads(body.data)
             logger.info(`[ws] RETRY_UPLOADS from ${username} | ${elapsed(start)}`)

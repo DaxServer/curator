@@ -705,153 +705,85 @@ describe('useCollections Listeners', () => {
   })
 
   describe('onBatchUploadsList', () => {
-    it('should update batch uploads if current batch matches', () => {
-      store.currentBatchId = 123
-      const data: BatchUploadsListData = {
-        batch: {
-          id: 123,
-          created_at: '',
-          updated_at: '',
-          username: '',
-          userid: '',
-          edit_group_id: null,
-          stats: {
-            cancelled: 0,
-            completed: 0,
-            duplicate: 0,
-            failed: 0,
-            in_progress: 0,
-            queued: 0,
-            total: 0,
-          },
-        },
-        uploads: [
-          {
-            id: 1,
-            status: 'queued',
-            filename: '',
-            wikitext: '',
-            batchid: 0,
-            key: '',
-            handler: 'mapillary',
-            error: null,
-            success: null,
-          },
-        ],
-      }
+    const makeUpload = (id: number): BatchUploadsListData['uploads'][number] => ({
+      id,
+      status: 'queued',
+      filename: '',
+      wikitext: '',
+      batchid: 0,
+      key: '',
+      handler: 'mapillary',
+      error: null,
+      success: null,
+    })
 
-      listeners.onBatchUploadsList(data)
+    it('appends uploads and clears loading on partial: false', () => {
+      store.currentBatchId = 5
+      store.batchUploadsLoading = true
+      store.batchUploads = [makeUpload(1)] as unknown as BatchUploadItem[]
 
-      expect(store.batch).toEqual(data.batch)
-      expect(store.batchUploads).toEqual(data.uploads)
+      listeners.onBatchUploadsList({ batch_id: 5, uploads: [makeUpload(2)], partial: false })
+
+      expect(store.batchUploads).toHaveLength(2)
       expect(store.batchUploadsLoading).toBe(false)
     })
 
-    it('should ignore batch uploads if current batch does not match', () => {
-      store.currentBatchId = 123
+    it('appends uploads and keeps loading on partial: true', () => {
+      store.currentBatchId = 5
       store.batchUploadsLoading = true
-      store.batch = {
-        id: 123,
-        created_at: '',
-        updated_at: '',
-        username: '',
-        userid: '',
-        edit_group_id: null,
-        stats: {
-          cancelled: 0,
-          completed: 0,
-          duplicate: 0,
-          failed: 0,
-          in_progress: 0,
-          queued: 0,
-          total: 0,
-        },
-      }
-      store.batchUploads = [
-        { id: 1, status: '', filename: '', wikitext: '' } as unknown as BatchUploadItem,
-      ]
+      store.batchUploads = [makeUpload(1)] as unknown as BatchUploadItem[]
 
-      const data: BatchUploadsListData = {
-        batch: {
-          id: 999,
-          created_at: '',
-          updated_at: '',
-          username: '',
-          userid: '',
-          edit_group_id: null,
-          stats: {
-            cancelled: 0,
-            completed: 0,
-            duplicate: 0,
-            failed: 0,
-            in_progress: 0,
-            queued: 0,
-            total: 0,
-          },
-        },
-        uploads: [
-          {
-            id: 2,
-            status: 'queued',
-            filename: '',
-            wikitext: '',
-            batchid: 0,
-            key: '',
-            handler: 'mapillary',
-            error: null,
-            success: null,
-          },
-        ],
-      }
+      listeners.onBatchUploadsList({ batch_id: 5, uploads: [makeUpload(2)], partial: true })
 
-      listeners.onBatchUploadsList(data)
-
-      expect(store.batch!.id).toBe(123)
-      expect(store.batchUploads).toHaveLength(1)
+      expect(store.batchUploads).toHaveLength(2)
       expect(store.batchUploadsLoading).toBe(true)
     })
 
-    it('should handle batch id of 0', () => {
-      store.currentBatchId = 0
-      store.batchUploadsLoading = true
-      const data: BatchUploadsListData = {
-        batch: {
-          id: 0,
-          created_at: '',
-          updated_at: '',
-          username: '',
-          userid: '',
-          edit_group_id: null,
-          stats: {
-            cancelled: 0,
-            completed: 0,
-            duplicate: 0,
-            failed: 0,
-            in_progress: 0,
-            queued: 0,
-            total: 0,
-          },
-        },
-        uploads: [
-          {
-            id: 1,
-            status: 'queued',
-            filename: '',
-            wikitext: '',
-            batchid: 0,
-            key: '',
-            handler: 'mapillary',
-            error: null,
-            success: null,
-          },
-        ],
-      }
+    it('discards stale pages from a previous batch', () => {
+      store.currentBatchId = 5
+      store.batchUploads = [makeUpload(1)] as unknown as BatchUploadItem[]
 
-      listeners.onBatchUploadsList(data)
+      listeners.onBatchUploadsList({ batch_id: 99, uploads: [makeUpload(2)], partial: false })
 
-      expect(store.batch!.id).toBe(0)
       expect(store.batchUploads).toHaveLength(1)
-      expect(store.batchUploadsLoading).toBe(false)
+    })
+  })
+
+  describe('onBatchInfo', () => {
+    const makeBatch = (id: number) => ({
+      id,
+      created_at: '',
+      updated_at: '',
+      username: 'alice',
+      userid: '1',
+      edit_group_id: null,
+      stats: {
+        cancelled: 0,
+        completed: 0,
+        duplicate: 0,
+        failed: 0,
+        in_progress: 0,
+        queued: 0,
+        total: 0,
+      },
+    })
+
+    it('sets store.batch from BATCH_INFO', () => {
+      store.currentBatchId = 42
+      const batch = makeBatch(42)
+
+      listeners.onBatchInfo({ batch })
+
+      expect(store.batch).toEqual(batch)
+    })
+
+    it('discards stale BATCH_INFO from a previous batch', () => {
+      store.currentBatchId = 5
+      store.batch = undefined
+
+      listeners.onBatchInfo({ batch: makeBatch(99) })
+
+      expect(store.batch).toBeUndefined()
     })
   })
 

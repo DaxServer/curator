@@ -44,7 +44,9 @@ const mockGetLatestUpdateTime = mock(async () => null as Date | null)
 const mockCountUploadsInBatch = mock(async () => 0)
 const mockPopulateBatchStats = mock(async () => new Map())
 
-const mockGetUploadsByBatch = mock(async (_id: number) => [] as unknown[])
+const mockGetUploadsByBatch = mock(
+  async (_id: number, _limit: number, _offset: number) => [] as unknown[],
+)
 const mockRetrySelectedUploadsToNewBatch = mock(async () => ({
   newUploadIds: [] as number[],
   editGroupId: null as string | null,
@@ -419,28 +421,49 @@ describe('Handler.deletePreset (not found)', () => {
 })
 
 describe('Handler.fetchBatchUploads (found)', () => {
-  it('sends BATCH_UPLOADS_LIST with batch and uploads', async () => {
+  it('sends BATCH_UPLOADS_LIST without batch, with partial: false for single page', async () => {
     const { handler, sender } = makeHandler()
     mockGetBatch.mockImplementation(async () => fakeBatchItem({ id: 5 }))
     mockGetUploadsByBatch.mockImplementation(async () => [fakeUploadItem({ batchid: 5 })])
 
-    await handler.fetchBatchUploads(5)
+    await handler.fetchBatchUploads({ batch_id: 5, page_size: 100 })
 
-    const msg = sender.messages.find((m) => m.type === 'BATCH_UPLOADS_LIST') as
-      | {
-          type: 'BATCH_UPLOADS_LIST'
-          data: { batch: { id: number }; uploads: unknown[] }
-        }
-      | undefined
-    expect(msg).toBeDefined()
-    expect(msg!.data.batch.id).toBe(5)
-    expect(msg!.data.uploads).toHaveLength(1)
-    const upload = msg!.data.uploads[0] as Record<string, unknown>
+    const msgs = sender.messages.filter((m) => m.type === 'BATCH_UPLOADS_LIST') as {
+      type: 'BATCH_UPLOADS_LIST'
+      data: { uploads: unknown[]; partial: boolean }
+    }[]
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]!.data).not.toHaveProperty('batch')
+    expect(msgs[0]!.data.partial).toBe(false)
+    expect(msgs[0]!.data.uploads).toHaveLength(1)
+    const upload = msgs[0]!.data.uploads[0] as Record<string, unknown>
     expect(upload).not.toHaveProperty('userid')
     expect(upload).not.toHaveProperty('labels')
     expect(upload).not.toHaveProperty('result')
     expect(upload).not.toHaveProperty('created_at')
     expect(upload).not.toHaveProperty('updated_at')
+  })
+
+  it('sends paginated BATCH_UPLOADS_LIST messages for >100 uploads', async () => {
+    const { handler, sender } = makeHandler()
+    mockGetBatch.mockImplementation(async () => fakeBatchItem({ id: 5 }))
+    const page1 = Array.from({ length: 100 }, (_, i) => fakeUploadItem({ id: i + 1, batchid: 5 }))
+    const page2 = [fakeUploadItem({ id: 101, batchid: 5 })]
+    mockGetUploadsByBatch.mockImplementation(async (_id, _limit, offset) =>
+      offset === 0 ? page1 : offset === 100 ? page2 : [],
+    )
+
+    await handler.fetchBatchUploads({ batch_id: 5, page_size: 100 })
+
+    const msgs = sender.messages.filter((m) => m.type === 'BATCH_UPLOADS_LIST') as {
+      type: 'BATCH_UPLOADS_LIST'
+      data: { uploads: unknown[]; partial: boolean }
+    }[]
+    expect(msgs).toHaveLength(2)
+    expect(msgs[0]!.data.uploads).toHaveLength(100)
+    expect(msgs[0]!.data.partial).toBe(true)
+    expect(msgs[1]!.data.uploads).toHaveLength(1)
+    expect(msgs[1]!.data.partial).toBe(false)
   })
 })
 
@@ -449,13 +472,38 @@ describe('Handler.fetchBatchUploads (not found)', () => {
     const { handler, sender } = makeHandler()
     mockGetBatch.mockImplementation(async () => null)
 
-    await handler.fetchBatchUploads(999)
+    await handler.fetchBatchUploads({ batch_id: 999, page_size: 100 })
 
     const msg = sender.messages.find((m) => m.type === 'ERROR') as
-      | {
-          type: 'ERROR'
-          data: string
-        }
+      | { type: 'ERROR'; data: string }
+      | undefined
+    expect(msg).toBeDefined()
+    expect(msg!.data).toContain('not found')
+  })
+})
+
+describe('Handler.fetchBatch', () => {
+  it('sends BATCH_INFO with the requested batch', async () => {
+    const { handler, sender } = makeHandler()
+    mockGetBatch.mockImplementation(async () => fakeBatchItem({ id: 7 }))
+
+    await handler.fetchBatch(7)
+
+    const msg = sender.messages.find((m) => m.type === 'BATCH_INFO') as
+      | { type: 'BATCH_INFO'; data: { batch: { id: number } } }
+      | undefined
+    expect(msg).toBeDefined()
+    expect(msg!.data.batch.id).toBe(7)
+  })
+
+  it('sends ERROR when batch does not exist', async () => {
+    const { handler, sender } = makeHandler()
+    mockGetBatch.mockImplementation(async () => null)
+
+    await handler.fetchBatch(999)
+
+    const msg = sender.messages.find((m) => m.type === 'ERROR') as
+      | { type: 'ERROR'; data: string }
       | undefined
     expect(msg).toBeDefined()
     expect(msg!.data).toContain('not found')

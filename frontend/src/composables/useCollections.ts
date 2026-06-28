@@ -210,12 +210,19 @@ export const initCollectionsListeners = () => {
     store.batchesLoading = false
   }
 
-  const onBatchUploadsList = (data: { batch: BatchItem; uploads: BatchUploadItem[] }) => {
-    if (Number(data.batch.id) === Number(store.currentBatchId)) {
-      store.batch = data.batch
-      store.batchUploads = data.uploads
-      store.batchUploadsLoading = false
-    }
+  const onBatchUploadsList = (data: {
+    batch_id: number
+    uploads: BatchUploadItem[]
+    partial: boolean
+  }) => {
+    if (data.batch_id !== store.currentBatchId) return
+    store.batchUploads = [...store.batchUploads, ...data.uploads]
+    if (!data.partial) store.batchUploadsLoading = false
+  }
+
+  const onBatchInfo = (data: { batch: BatchItem }) => {
+    if (data.batch.id !== store.currentBatchId) return
+    store.batch = data.batch
   }
 
   const onTryBatchRetrieval = (batchLoadingStatus: string) => {
@@ -312,6 +319,9 @@ export const initCollectionsListeners = () => {
       case 'BATCH_UPLOADS_LIST':
         onBatchUploadsList(msg.data)
         break
+      case 'BATCH_INFO':
+        onBatchInfo(msg.data)
+        break
       case 'TRY_BATCH_RETRIEVAL':
         onTryBatchRetrieval(msg.data)
         break
@@ -378,6 +388,7 @@ export const initCollectionsListeners = () => {
     onUploadCreated,
     onBatchesList,
     onBatchUploadsList,
+    onBatchInfo,
     onTryBatchRetrieval,
     onCollectionImageIds,
     onPartialCollectionImages,
@@ -455,12 +466,13 @@ export const useCollections = () => {
 
   const loadBatchUploads = (batchId: number) => {
     store.batchUploadsLoading = true
-    store.batch = undefined
     store.batchUploads = []
     store.currentBatchId = batchId
+    store.batch = store.batches.find((b) => b.id === batchId)
+    send({ type: 'FETCH_BATCH', data: batchId })
     send({
       type: 'FETCH_BATCH_UPLOADS',
-      data: batchId,
+      data: { batch_id: batchId, page_size: store.uploadPageSize },
     })
   }
 

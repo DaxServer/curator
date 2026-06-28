@@ -10,7 +10,7 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number]
 
 export type BatchStatsCard = {
   label: string
-  count: number
+  count?: number
   color: ColorVariant
   value: 'all' | UploadStatus
   alwaysActive?: boolean

@@ -94,8 +94,8 @@ export class BatchService {
       .groupBy(uploadRequests.batchid)
     const map = new Map<number, BatchStats>()
     for (const r of rows) {
-      map.set(r.batchid, {
-        total: r.total,
+      map.set(Number(r.batchid), {
+        total: Number(r.total),
         queued: Number(r.queued),
         in_progress: Number(r.in_progress),
         completed: Number(r.completed),

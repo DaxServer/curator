@@ -201,6 +201,14 @@ export const FetchBatchesSchema = t.Object({
 
 export const FetchBatchUploadsSchema = t.Object({
   type: t.Literal('FETCH_BATCH_UPLOADS'),
+  data: t.Object({
+    batch_id: t.Integer(),
+    page_size: t.Integer(),
+  }),
+})
+
+export const FetchBatchSchema = t.Object({
+  type: t.Literal('FETCH_BATCH'),
   data: t.Integer(),
 })
 
@@ -324,10 +332,18 @@ export const BatchesListSchema = t.Object({
 export const BatchUploadsListSchema = t.Object({
   type: t.Literal('BATCH_UPLOADS_LIST'),
   data: t.Object({
-    batch: BatchItemSchema,
+    batch_id: t.Integer(),
     uploads: t.Array(BatchUploadItemSchema),
+    partial: t.Boolean(),
   }),
   nonce: t.String(),
+})
+
+export const BatchInfoSchema = t.Object({
+  type: t.Literal('BATCH_INFO'),
+  data: t.Object({
+    batch: BatchItemSchema,
+  }),
 })
 
 export const CollectionImagesSchema = t.Object({
@@ -451,6 +467,7 @@ export const ErrorSchema = t.Object({
 export const ClientMessage = t.Union([
   FetchBatchesSchema,
   FetchBatchUploadsSchema,
+  FetchBatchSchema,
   RetryUploadsSchema,
   CancelBatchSchema,
   SubscribeBatchSchema,
@@ -471,6 +488,7 @@ export const ClientMessage = t.Union([
 export const ServerMessage = t.Union([
   BatchesListSchema,
   BatchUploadsListSchema,
+  BatchInfoSchema,
   CollectionImagesSchema,
   CollectionImageIdsSchema,
   PartialCollectionImagesSchema,
