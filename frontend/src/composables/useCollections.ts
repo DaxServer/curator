@@ -146,9 +146,12 @@ export const initCollectionsListeners = () => {
           return null
         }
         const stats = { ...store.batch.stats }
+        const seen = new Set<number>()
         for (const update of data) {
           if (Number(update.batchid) !== Number(store.currentBatchId)) continue
-          const oldUpload = store.batchUploads.find((u) => u.key === update.key)
+          if (seen.has(update.id)) continue
+          seen.add(update.id)
+          const oldUpload = store.batchUploads.find((u) => u.id === update.id)
           if (!oldUpload || oldUpload.status === update.status) continue
           const oldKey = statusToStatKey(oldUpload.status)
           const newKey = statusToStatKey(update.status)
