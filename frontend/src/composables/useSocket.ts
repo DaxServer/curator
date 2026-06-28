@@ -56,8 +56,10 @@ export const createSocketModule = (
   const open = (isReconnect = false) => {
     _active = true
     _connected = false
-    _pendingQueue = []
-    if (!isReconnect) _reconnectDelay = RECONNECT_BASE_DELAY
+    if (!isReconnect) {
+      _pendingQueue = []
+      _reconnectDelay = RECONNECT_BASE_DELAY
+    }
     if (_ws) {
       _ws.off('close', _onClose)
       _ws.close()

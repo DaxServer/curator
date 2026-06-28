@@ -86,6 +86,27 @@ describe('useSocket send queuing', () => {
     expect(sent).toHaveLength(1)
   })
 
+  it('preserves queued messages across reconnect and delivers them once reconnected', () => {
+    socket.open()
+    currentWs!.trigger('open')
+
+    // socket drops
+    currentWs!.trigger('close')
+
+    // message sent during reconnect delay — should be queued, not lost
+    const sent: unknown[] = []
+    const deliverTo = (ws: MockWS) => { ws.send = (msg) => { sent.push(msg); return ws } }
+
+    socket.send({ type: 'FETCH_BATCHES', data: { page: 1, limit: 100 } } as never)
+
+    // reconnect fires
+    pendingReconnect!()
+    deliverTo(currentWs!)
+    currentWs!.trigger('open')
+
+    expect(sent).toHaveLength(1)
+  })
+
   it('sends immediately when already connected', () => {
     socket.open()
     const sent: unknown[] = []
