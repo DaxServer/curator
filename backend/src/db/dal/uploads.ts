@@ -529,4 +529,44 @@ export class UploadService {
 
     return { items, total }
   }
+
+  async getUploadsByBatchChangedSinceWithIdCursor(
+    batchId: number,
+    since: Date,
+    minId: number,
+  ): Promise<SafeUploadRow[]> {
+    const {
+      access_token: _,
+      collection: __,
+      copyright_override: ___,
+      celery_task_id: ____,
+      ...cols
+    } = getTableColumns(uploadRequests)
+    return this.db
+      .select(cols)
+      .from(uploadRequests)
+      .where(
+        and(
+          eq(uploadRequests.batchid, batchId),
+          or(
+            gt(uploadRequests.updated_at, since),
+            and(eq(uploadRequests.updated_at, since), gt(uploadRequests.id, minId)),
+          ),
+        ),
+      )
+      .orderBy(asc(uploadRequests.updated_at), asc(uploadRequests.id))
+  }
+
+  async countActiveUploadsInBatch(batchId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count(uploadRequests.id) })
+      .from(uploadRequests)
+      .where(
+        and(
+          eq(uploadRequests.batchid, batchId),
+          inArray(uploadRequests.status, ['queued', 'in_progress']),
+        ),
+      )
+    return row?.n ?? 0
+  }
 }

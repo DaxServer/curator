@@ -24,14 +24,6 @@ import type { Redis } from 'ioredis'
 
 const BATCH_UPLOADS_PAGE_SIZE = 100
 
-const UPLOAD_DONE_STATUSES = new Set([
-  'completed',
-  'failed',
-  'duplicate',
-  'duplicated_sdc_updated',
-  'duplicated_sdc_not_updated',
-])
-
 const BATCH_RETRIEVAL_CHUNK_SIZE = 100
 
 type SessionUserWithAuth = SessionUser & {
@@ -644,23 +636,40 @@ export class Handler {
   }
 
   private startUploadStream(batchid: number): ReturnType<typeof setTimeout> {
-    let lastSerialized: string | null = null
+    let cursorTime: Date = new Date(0)
+    // Track last-sent state per id: catches same-second re-updates that id-ordering misses
+    const sentState = new Map<number, string>()
     const poll = async () => {
       try {
-        const items = await this.getAllUploadsForBatch(batchid)
-        const updateItems = items.map(toUploadUpdateItem)
-        const serialized = JSON.stringify(updateItems)
-        if (serialized !== lastSerialized) {
+        // minId=0 makes this equivalent to updated_at >= cursorTime; sentState deduplicates
+        const candidates = await this.services.uploads.getUploadsByBatchChangedSinceWithIdCursor(
+          batchid,
+          cursorTime,
+          0,
+        )
+        const toSend = candidates.filter((r) => {
+          const key = `${r.status}|${JSON.stringify(r.error)}|${r.success ?? ''}`
+          if (sentState.get(r.id) === key) return false
+          sentState.set(r.id, key)
+          return true
+        })
+        if (toSend.length > 0) {
           this.sender.send({
             type: 'UPLOADS_UPDATE',
-            data: updateItems,
+            data: toSend.map(toUploadUpdateItem),
+            partial: true,
             nonce: nonce(),
           })
-          lastSerialized = serialized
         }
-        const total = await this.services.batches.countUploadsInBatch(batchid)
-        const completed = items.filter((i) => UPLOAD_DONE_STATUSES.has(i.status)).length
-        if (total > 0 && completed >= total) {
+        if (candidates.length > 0) {
+          const maxTime = candidates[candidates.length - 1]!.updated_at
+          if (maxTime > cursorTime) cursorTime = maxTime
+        }
+        const [total, active] = await Promise.all([
+          this.services.batches.countUploadsInBatch(batchid),
+          this.services.uploads.countActiveUploadsInBatch(batchid),
+        ])
+        if (total > 0 && active === 0) {
           this.sender.send({
             type: 'UPLOADS_COMPLETE',
             data: batchid,
