@@ -1,7 +1,7 @@
 import { fakeBatchItem, makeSender } from '@backend/__tests__/helpers'
 import type { BatchItem, BatchService } from '@backend/db/dal/batches'
 import type { PresetService } from '@backend/db/dal/presets'
-import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
+import type { SafeUploadRow, UploadService } from '@backend/db/dal/uploads'
 import type { UserService } from '@backend/db/dal/users'
 import { fetchExistingPages, fromMapillary } from '@backend/handlers/mapillary'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
@@ -201,7 +201,7 @@ function makeHandler(sender = makeSender(), redis = makeRedis()) {
   }
 }
 
-function fakeUploadItem(overrides: Partial<UploadRow> = {}): UploadRow {
+function fakeUploadItem(overrides: Partial<SafeUploadRow> = {}): SafeUploadRow {
   return {
     id: 10,
     batchid: 1,
@@ -209,16 +209,12 @@ function fakeUploadItem(overrides: Partial<UploadRow> = {}): UploadRow {
     status: 'queued',
     key: 'img-key',
     handler: 'mapillary',
-    collection: null,
-    access_token: null,
     filename: 'test.jpg',
     wikitext: '== wikitext ==',
-    copyright_override: false,
     labels: null,
     result: null,
     error: null,
     success: null,
-    celery_task_id: null,
     created_at: new Date('2024-01-01T00:00:00.000Z'),
     updated_at: new Date('2024-01-01T00:00:00.000Z'),
     ...overrides,
@@ -439,6 +435,12 @@ describe('Handler.fetchBatchUploads (found)', () => {
     expect(msg).toBeDefined()
     expect(msg!.data.batch.id).toBe(5)
     expect(msg!.data.uploads).toHaveLength(1)
+    const upload = msg!.data.uploads[0] as Record<string, unknown>
+    expect(upload).not.toHaveProperty('userid')
+    expect(upload).not.toHaveProperty('labels')
+    expect(upload).not.toHaveProperty('result')
+    expect(upload).not.toHaveProperty('created_at')
+    expect(upload).not.toHaveProperty('updated_at')
   })
 })
 
