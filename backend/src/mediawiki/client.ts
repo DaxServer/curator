@@ -49,7 +49,10 @@ export class MediaWikiClient {
       body = new URLSearchParams(postData).toString()
     }
     const res = await fetch(url, { method, headers, body })
-    if (!res.ok) throw new Error(`MediaWiki API request failed: ${res.status}`)
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`MediaWiki API request failed: ${res.status} ${text}`)
+    }
     return res.json() as Promise<Record<string, unknown>>
   }
 

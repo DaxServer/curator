@@ -136,29 +136,18 @@ export const initCollectionsListeners = () => {
 
     if (batchUploadsChanged) {
       if (store.batch) {
-        const statusToStatKey = (status: string) => {
-          if (status === UPLOAD_STATUS.Queued) return 'queued' as const
-          if (status === UPLOAD_STATUS.InProgress) return 'in_progress' as const
-          if (status === UPLOAD_STATUS.Completed) return 'completed' as const
-          if (status === UPLOAD_STATUS.Failed) return 'failed' as const
-          if (status === UPLOAD_STATUS.Cancelled) return 'cancelled' as const
-          if (isDuplicateStatus(status as UploadStatus)) return 'duplicate' as const
-          return null
+        store.batch = {
+          ...store.batch,
+          stats: {
+            ...store.batch.stats,
+            queued: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Queued).length,
+            in_progress: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.InProgress).length,
+            completed: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Completed).length,
+            failed: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Failed).length,
+            cancelled: newBatchUploads.filter((u) => u.status === UPLOAD_STATUS.Cancelled).length,
+            duplicate: newBatchUploads.filter((u) => isDuplicateStatus(u.status as UploadStatus)).length,
+          },
         }
-        const stats = { ...store.batch.stats }
-        const seen = new Set<number>()
-        for (const update of data) {
-          if (Number(update.batchid) !== Number(store.currentBatchId)) continue
-          if (seen.has(update.id)) continue
-          seen.add(update.id)
-          const oldUpload = store.batchUploads.find((u) => u.id === update.id)
-          if (!oldUpload || oldUpload.status === update.status) continue
-          const oldKey = statusToStatKey(oldUpload.status)
-          const newKey = statusToStatKey(update.status)
-          if (oldKey) stats[oldKey]--
-          if (newKey) stats[newKey]++
-        }
-        store.batch = { ...store.batch, stats }
       }
       store.batchUploads = newBatchUploads
     }
