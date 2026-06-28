@@ -23,3 +23,4 @@ Set `DEV_MOCK_AUTH=true` in the backend environment to bypass Commons OAuth. Eve
 - Elysia guard plugins: use `as: 'scoped'` (not `'local'`) — `'local'` silently skips the guard when consumed via a parent `.use()`
 - `config.*` values are frozen at module import time — guards should read from `config`, and tests should seed sessions/state matching the config defaults rather than injecting env vars
 - `vue-tsc` is stricter than `tsc` — it catches `T | undefined` from `.then(r => r[0])` that backend-only typecheck passes; run `bun typecheck` (runs both) before committing
+- mysql2 returns GROUP BY column values as strings even for INTEGER columns — use `Number(r.col)` as Map keys in aggregation results to avoid silent lookup misses (`statsMap.get(367)` fails when key is `"367"`)

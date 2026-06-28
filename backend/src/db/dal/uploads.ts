@@ -167,7 +167,11 @@ export class UploadService {
     return (result[0] as { affectedRows: number }).affectedRows
   }
 
-  async getUploadsByBatch(batchId: number): Promise<SafeUploadRow[]> {
+  async getUploadsByBatch(
+    batchId: number,
+    limit: number,
+    offset: number,
+  ): Promise<SafeUploadRow[]> {
     const {
       access_token: _,
       collection: __,
@@ -180,6 +184,8 @@ export class UploadService {
       .from(uploadRequests)
       .where(eq(uploadRequests.batchid, batchId))
       .orderBy(asc(uploadRequests.id))
+      .limit(limit)
+      .offset(offset)
   }
 
   async getUploadById(

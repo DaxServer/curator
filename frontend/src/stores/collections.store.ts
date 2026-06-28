@@ -60,6 +60,7 @@ export const useCollectionsStore = defineStore('collections', () => {
   const batch = ref<BatchItem>()
   const batchUploads = shallowRef<BatchUploadItem[]>([])
   const batchUploadsLoading = ref(false)
+  const uploadPageSize = ref(100)
   const currentBatchId = ref<number | null>(null)
   const retryNewBatchId = ref<number | null>(null)
   const batchesFilter = ref([
@@ -375,6 +376,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     batch,
     batchUploads,
     batchUploadsLoading,
+    uploadPageSize,
     currentBatchId,
     retryNewBatchId,
     batchesFilter,

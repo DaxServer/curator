@@ -1,5 +1,9 @@
 ## Non-Obvious Gotchas
 
+**`useRouteParams` with numeric params:** `useRouteParams<number>('id')` lies at runtime — Vue Router params are always strings. Use `useRouteParams('id', 0, { transform: Number })` to get an actual number.
+
+**Elysia WS body has no coercion:** Unlike HTTP query/params (which Elysia 1.1 coerces), WS body is parsed from JSON which preserves types — a string `"367"` won't match `t.Integer()`. Fix type mismatches at the source (e.g. `useRouteParams` transform).
+
 **Auto-imports:** `.vue` SFCs get Vite's auto-import transform; `.ts` composable files do not — must explicitly import `ref`, `watch`, stores, and PrimeVue utilities like `useToast`.
 
 **Auto-imports regeneration:** After adding a composable or store, regenerate `auto-imports.d.ts` and `components.d.ts` by running `bunx vite build` in `frontend/`, then commit the updated files and delete `dist/`.

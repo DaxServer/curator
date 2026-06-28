@@ -5,14 +5,12 @@ import { COLOR_VARIANTS } from '@frontend/composables/useUploadStatus'
 const props = withDefaults(
   defineProps<{
     label: string
-    count: number
-    skeleton?: boolean
+    count?: number
     color?: ColorVariant
     alwaysActive?: boolean
     selected?: boolean
   }>(),
   {
-    skeleton: true,
     color: 'gray',
     alwaysActive: false,
     selected: false,
@@ -23,7 +21,9 @@ defineEmits<{
   click: []
 }>()
 
-const isActive = computed(() => props.alwaysActive || props.count > 0)
+const isActive = computed(
+  () => props.count !== undefined && (props.alwaysActive || props.count > 0),
+)
 
 const colors = computed(() => {
   const variant = COLOR_VARIANTS[props.color]
@@ -44,7 +44,7 @@ const colors = computed(() => {
       colors.bg,
       colors.border,
       isActive ? 'hover:cursor-pointer hover:shadow-md' : 'hover:cursor-default',
-      !skeleton && selected ? `ring-2 ${colors.ring}` : '',
+      count !== undefined && selected ? `ring-2 ${colors.ring}` : '',
     ]"
     @click="isActive && $emit('click')"
   >
@@ -58,7 +58,7 @@ const colors = computed(() => {
       class="text-2xl font-bold mt-1"
       :class="colors.countColor"
     >
-      <Skeleton v-if="skeleton" />
+      <Skeleton v-if="count === undefined" />
       <template v-else>
         {{ count }}
       </template>
