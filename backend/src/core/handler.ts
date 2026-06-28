@@ -636,26 +636,34 @@ export class Handler {
   }
 
   private startUploadStream(batchid: number): ReturnType<typeof setTimeout> {
-    // (updated_at, id) cursor — correctly handles same-second updates without re-sends
     let cursorTime: Date = new Date(0)
-    let cursorId: number = 0
+    // Track last-sent state per id: catches same-second re-updates that id-ordering misses
+    const sentState = new Map<number, string>()
     const poll = async () => {
       try {
-        const changed = await this.services.uploads.getUploadsByBatchChangedSinceWithIdCursor(
+        // minId=0 makes this equivalent to updated_at >= cursorTime; sentState deduplicates
+        const candidates = await this.services.uploads.getUploadsByBatchChangedSinceWithIdCursor(
           batchid,
           cursorTime,
-          cursorId,
+          0,
         )
-        if (changed.length > 0) {
+        const toSend = candidates.filter((r) => {
+          const key = `${r.status}|${JSON.stringify(r.error)}|${r.success ?? ''}`
+          if (sentState.get(r.id) === key) return false
+          sentState.set(r.id, key)
+          return true
+        })
+        if (toSend.length > 0) {
           this.sender.send({
             type: 'UPLOADS_UPDATE',
-            data: changed.map(toUploadUpdateItem),
+            data: toSend.map(toUploadUpdateItem),
             partial: true,
             nonce: nonce(),
           })
-          const last = changed[changed.length - 1]!
-          cursorTime = last.updated_at
-          cursorId = last.id
+        }
+        if (candidates.length > 0) {
+          const maxTime = candidates[candidates.length - 1]!.updated_at
+          if (maxTime > cursorTime) cursorTime = maxTime
         }
         const [total, active] = await Promise.all([
           this.services.batches.countUploadsInBatch(batchid),
