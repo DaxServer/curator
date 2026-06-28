@@ -7,7 +7,7 @@ import { getNextUploadDelay, getRateLimitForBatch } from '@backend/core/rateLimi
 import type { SessionUser } from '@backend/core/session'
 import type { BatchService } from '@backend/db/dal/batches'
 import type { PresetService } from '@backend/db/dal/presets'
-import type { UploadRow, UploadService } from '@backend/db/dal/uploads'
+import type { SafeUploadRow, UploadService } from '@backend/db/dal/uploads'
 import type { UserService } from '@backend/db/dal/users'
 import { MapillaryHandler } from '@backend/handlers/mapillary'
 import { MediaWikiClient } from '@backend/mediawiki/client'
@@ -76,7 +76,7 @@ function presetRowToItem(p: {
   }
 }
 
-function toUploadUpdateItem(u: UploadRow): UploadUpdateItem {
+function toUploadUpdateItem(u: SafeUploadRow): UploadUpdateItem {
   return {
     id: u.id,
     batchid: u.batchid,
@@ -177,18 +177,13 @@ export class Handler {
           uploads: uploads.map((u) => ({
             id: u.id,
             batchid: u.batchid,
-            userid: u.userid,
             status: u.status as BatchUploadItem['status'],
             key: u.key,
             handler: u.handler as BatchUploadItem['handler'],
             filename: u.filename,
             wikitext: u.wikitext,
-            labels: u.labels as BatchUploadItem['labels'],
-            result: u.result,
             error: u.error as BatchUploadItem['error'],
             success: u.success,
-            created_at: u.created_at.toISOString(),
-            updated_at: u.updated_at.toISOString(),
           })),
         },
         nonce: nonce(),

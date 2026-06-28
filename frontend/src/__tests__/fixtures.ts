@@ -40,14 +40,9 @@ export const createMockUploadItem = (
   status,
   filename: `file-${id}.jpg`,
   wikitext: `{{Some text for ${id}}}`,
-  labels: null,
-  result: null,
   error: error ? { message: error, type: 'error' } : null,
   success:
     status === UPLOAD_STATUS.Completed ? 'https://commons.wikimedia.org/wiki/File:Test.jpg' : null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  userid: '',
   batchid: 1,
   handler: 'mapillary',
 })

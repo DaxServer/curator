@@ -19,6 +19,10 @@ import {
 } from 'drizzle-orm'
 
 export type UploadRow = typeof uploadRequests.$inferSelect
+export type SafeUploadRow = Omit<
+  UploadRow,
+  'access_token' | 'collection' | 'copyright_override' | 'celery_task_id'
+>
 
 function uploadFilter({
   filterText,
@@ -163,9 +167,16 @@ export class UploadService {
     return (result[0] as { affectedRows: number }).affectedRows
   }
 
-  async getUploadsByBatch(batchId: number): Promise<UploadRow[]> {
+  async getUploadsByBatch(batchId: number): Promise<SafeUploadRow[]> {
+    const {
+      access_token: _,
+      collection: __,
+      copyright_override: ___,
+      celery_task_id: ____,
+      ...cols
+    } = getTableColumns(uploadRequests)
     return this.db
-      .select()
+      .select(cols)
       .from(uploadRequests)
       .where(eq(uploadRequests.batchid, batchId))
       .orderBy(asc(uploadRequests.id))

@@ -95,7 +95,12 @@ describe('useSocket send queuing', () => {
 
     // message sent during reconnect delay — should be queued, not lost
     const sent: unknown[] = []
-    const deliverTo = (ws: MockWS) => { ws.send = (msg) => { sent.push(msg); return ws } }
+    const deliverTo = (ws: MockWS) => {
+      ws.send = (msg) => {
+        sent.push(msg)
+        return ws
+      }
+    }
 
     socket.send({ type: 'FETCH_BATCHES', data: { page: 1, limit: 100 } } as never)
 

@@ -131,18 +131,13 @@ export const BatchItemSchema = t.Object({
 export const BatchUploadItemSchema = t.Object({
   id: t.Integer(),
   batchid: t.Integer(),
-  userid: t.String(),
   status: UploadStatusSchema,
   key: t.String(),
   handler: HandlerSchema,
   filename: t.String(),
   wikitext: t.String(),
-  labels: t.Nullable(LabelSchema),
-  result: t.Nullable(t.String()),
   error: t.Nullable(StructuredErrorSchema),
   success: t.Nullable(t.String()),
-  created_at: t.String(),
-  updated_at: t.String(),
 })
 
 export const UploadUpdateItemSchema = t.Object({
