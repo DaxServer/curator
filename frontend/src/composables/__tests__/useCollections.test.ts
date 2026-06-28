@@ -277,6 +277,77 @@ describe('useCollections Listeners', () => {
       expect(store.batchUploads[0]!.success).toBe('url')
     })
 
+    it('should update batch stats when upload status changes', () => {
+      store.currentBatchId = 123
+      store.batch = {
+        id: 123,
+        created_at: '',
+        updated_at: '',
+        username: 'alice',
+        userid: '1',
+        edit_group_id: null,
+        stats: {
+          total: 2,
+          queued: 2,
+          in_progress: 0,
+          completed: 0,
+          failed: 0,
+          cancelled: 0,
+          duplicate: 0,
+        },
+      }
+      store.batchUploads = [
+        {
+          id: 1,
+          key: 'img1',
+          status: UPLOAD_STATUS.Queued,
+          batchid: 123,
+          filename: '',
+          wikitext: '',
+          handler: 'mapillary',
+          error: null,
+          success: null,
+        },
+        {
+          id: 2,
+          key: 'img2',
+          status: UPLOAD_STATUS.Queued,
+          batchid: 123,
+          filename: '',
+          wikitext: '',
+          handler: 'mapillary',
+          error: null,
+          success: null,
+        },
+      ] as unknown as BatchUploadItem[]
+
+      listeners.onUploadsUpdate([
+        {
+          id: 1,
+          key: 'img1',
+          status: UPLOAD_STATUS.Completed,
+          success: 'url',
+          error: null,
+          batchid: 123,
+          handler: 'mapillary',
+        },
+        {
+          id: 2,
+          key: 'img2',
+          status: UPLOAD_STATUS.Failed,
+          success: null,
+          error: { message: 'err', type: 'error' },
+          batchid: 123,
+          handler: 'mapillary',
+        },
+      ])
+
+      expect(store.batch!.stats.queued).toBe(0)
+      expect(store.batch!.stats.completed).toBe(1)
+      expect(store.batch!.stats.failed).toBe(1)
+      expect(store.batch!.stats.total).toBe(2)
+    })
+
     it('should handle empty update data array', () => {
       store.currentBatchId = 123
       store.replaceItems({
