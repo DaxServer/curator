@@ -19,7 +19,7 @@ import type { Image, Item } from '@frontend/types/image'
 import { UPLOAD_STATUS } from '@frontend/types/image'
 import { markRaw, watch } from 'vue'
 
-export const UPLOAD_SLICE_SIZE = 18
+export const UPLOAD_SLICE_SIZE = 100
 
 const toImage = (mediaImage: MediaImage): Image => ({
   ...mediaImage,
