@@ -209,3 +209,34 @@ describe('useSocket auto-reconnect', () => {
     expect(doubledDelay).toBe((baseDelay ?? 0) * 2)
   })
 })
+
+describe('useSocket connected ref', () => {
+  beforeEach(() => {
+    currentWs = null
+    pendingReconnect = null
+    pendingDelay = null
+    socket = createSocketModule(mockTreaty, mockTimer)
+  })
+
+  afterEach(() => {
+    socket.close()
+  })
+
+  it('is false before the WebSocket opens', () => {
+    socket.open()
+    expect(socket.connected.value).toBe(false)
+  })
+
+  it('becomes true when the WebSocket open event fires', () => {
+    socket.open()
+    currentWs!.trigger('open')
+    expect(socket.connected.value).toBe(true)
+  })
+
+  it('becomes false when the WebSocket close event fires', () => {
+    socket.open()
+    currentWs!.trigger('open')
+    currentWs!.trigger('close')
+    expect(socket.connected.value).toBe(false)
+  })
+})

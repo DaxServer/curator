@@ -83,7 +83,7 @@ export const initCollectionsListeners = () => {
   const store = useCollectionsStore()
   const { buildDescription, getEffectiveTitle, wikitext } = useCommons()
   const { isDuplicateStatus } = useUploadStatus()
-  const { data, send } = useSocket
+  const { data, send, connected } = useSocket
 
   const sendSubscribeBatch = (batchId: number) => {
     if (store.isStatusChecking) return
@@ -284,21 +284,74 @@ export const initCollectionsListeners = () => {
     }
   }
 
+  const sendSlice = (sliceIndex: number) => {
+    if (!store.batchId) return
+    const start = sliceIndex * UPLOAD_SLICE_SIZE
+    const end = Math.min(start + UPLOAD_SLICE_SIZE, store.selectedItems.length)
+    const sliceItems = store.selectedItems.slice(start, end).map((item) => ({
+      id: item.id,
+      input: store.input,
+      title: getEffectiveTitle(item),
+      wikitext: wikitext(item),
+      labels: item.meta.description,
+      copyright_override: (item.meta.license?.trim() || store.globalLicense.trim()) !== '',
+    }))
+    send({
+      type: 'UPLOAD_SLICE',
+      data: {
+        batchid: store.batchId,
+        sliceid: sliceIndex,
+        handler: store.handler,
+        items: sliceItems,
+      },
+    })
+  }
+
   const onBatchCreated = (batchId: number) => {
     store.batchId = batchId
     store.uploadSliceIndex = 0
-    sendNextSlice()
+    if (!batchId) return
+    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
+    if (totalSlices === 0) {
+      store.isLoading = false
+      store.isBatchCreated = true
+      sendSubscribeBatch(batchId)
+      return
+    }
+    for (let i = 0; i < totalSlices; i++) {
+      sendSlice(i)
+    }
   }
 
   const onUploadSliceAck = (sliceId: number, items: UploadSliceAckItem[]) => {
-    if (sliceId === store.uploadSliceIndex) {
-      store.uploadSliceIndex += 1
-      items.forEach(({ id, status }) => {
-        store.updateItem(id, 'status', status as UploadStatus)
-      })
-      sendNextSlice()
+    if (sliceId !== store.uploadSliceIndex) return
+    store.uploadSliceIndex += 1
+    items.forEach(({ id, status }) => {
+      store.updateItem(id, 'status', status as UploadStatus)
+    })
+    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
+    if (store.uploadSliceIndex >= totalSlices) {
+      store.isLoading = false
+      store.isBatchCreated = true
+      sendSubscribeBatch(store.batchId!)
     }
   }
+
+  const onSocketReconnect = () => {
+    if (!store.batchId || store.isBatchCreated) return
+    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
+    for (let i = store.uploadSliceIndex; i < totalSlices; i++) {
+      sendSlice(i)
+    }
+  }
+
+  watch(
+    connected,
+    (isConnected, wasConnected) => {
+      if (isConnected && wasConnected === false) onSocketReconnect()
+    },
+    { flush: 'sync' },
+  )
 
   const onRetryUploadsResponse = (newBatchId: number) => {
     store.setRetryNewBatchId(newBatchId)
@@ -362,40 +415,6 @@ export const initCollectionsListeners = () => {
     }
   })
 
-  const sendNextSlice = () => {
-    if (!store.batchId) return
-
-    const totalItems = store.selectedItems.length
-    const start = store.uploadSliceIndex * UPLOAD_SLICE_SIZE
-
-    if (start >= totalItems) {
-      store.isLoading = false
-      store.isBatchCreated = true
-      sendSubscribeBatch(store.batchId)
-      return
-    }
-
-    const end = Math.min(start + UPLOAD_SLICE_SIZE, totalItems)
-    const sliceItems = store.selectedItems.slice(start, end).map((item) => ({
-      id: item.id,
-      input: store.input,
-      title: getEffectiveTitle(item),
-      wikitext: wikitext(item),
-      labels: item.meta.description,
-      copyright_override: (item.meta.license?.trim() || store.globalLicense.trim()) !== '',
-    }))
-
-    send({
-      type: 'UPLOAD_SLICE',
-      data: {
-        batchid: store.batchId,
-        sliceid: store.uploadSliceIndex,
-        handler: store.handler,
-        items: sliceItems,
-      },
-    })
-  }
-
   return {
     onUploadsUpdate,
     onUploadsComplete,
@@ -410,6 +429,7 @@ export const initCollectionsListeners = () => {
     onPartialCollectionImages,
     onBatchCreated,
     onUploadSliceAck,
+    onSocketReconnect,
     onRetryUploadsResponse,
     onPresetsList,
   }

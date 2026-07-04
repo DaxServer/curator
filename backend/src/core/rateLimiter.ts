@@ -9,6 +9,9 @@ export interface RateLimitInfo {
 const RATE_LIMIT_DEFAULT_NORMAL = 10
 const RATE_LIMIT_DEFAULT_PERIOD = 60
 const NEXT_AVAILABLE_KEY = 'ratelimit:{userid}:next_available'
+const RATE_LIMIT_INFO_KEY = 'ratelimit:{userid}:limits'
+const RATE_LIMIT_CACHE_TTL = 3600
+
 const NO_RATE_LIMIT: RateLimitInfo = { uploadsPerPeriod: 9999, periodSeconds: 60 }
 
 export const RATE_LIMIT_DEFAULT: RateLimitInfo = {
@@ -41,39 +44,42 @@ function moreRestrictive(
 }
 
 export async function getRateLimitForBatch(
-  _userid: string,
+  userid: string,
   client: MediaWikiClient,
+  redis: Redis,
 ): Promise<RateLimitInfo> {
+  const cacheKey = RATE_LIMIT_INFO_KEY.replace('{userid}', userid)
+  const cached = await redis.get(cacheKey)
+  if (cached) return JSON.parse(cached) as RateLimitInfo
+
   const { ratelimits, rights } = await client.getUserRateLimits()
 
+  let result: RateLimitInfo
+
   if (rights.includes('noratelimit')) {
-    return NO_RATE_LIMIT
+    result = NO_RATE_LIMIT
+  } else {
+    const uploadLimits = ratelimits.upload ?? {}
+    const editLimits = ratelimits.edit ?? {}
+
+    const bestUpload = mostPermissive(uploadLimits)
+    const bestEdit = mostPermissive(editLimits)
+
+    const adjustedEdit =
+      bestEdit !== null
+        ? ([Math.max(1, Math.floor(bestEdit[0] / 2)), bestEdit[1]] as [number, number])
+        : null
+
+    const effective = moreRestrictive(bestUpload, adjustedEdit)
+
+    result =
+      effective === null
+        ? { uploadsPerPeriod: RATE_LIMIT_DEFAULT_NORMAL, periodSeconds: RATE_LIMIT_DEFAULT_PERIOD }
+        : { uploadsPerPeriod: effective[0], periodSeconds: effective[1] }
   }
 
-  const uploadLimits = ratelimits.upload ?? {}
-  const editLimits = ratelimits.edit ?? {}
-
-  const bestUpload = mostPermissive(uploadLimits)
-  const bestEdit = mostPermissive(editLimits)
-
-  const adjustedEdit =
-    bestEdit !== null
-      ? ([Math.max(1, Math.floor(bestEdit[0] / 2)), bestEdit[1]] as [number, number])
-      : null
-
-  const effective = moreRestrictive(bestUpload, adjustedEdit)
-
-  if (effective === null) {
-    return {
-      uploadsPerPeriod: RATE_LIMIT_DEFAULT_NORMAL,
-      periodSeconds: RATE_LIMIT_DEFAULT_PERIOD,
-    }
-  }
-
-  return {
-    uploadsPerPeriod: effective[0],
-    periodSeconds: effective[1],
-  }
+  await redis.set(cacheKey, JSON.stringify(result), 'EX', RATE_LIMIT_CACHE_TTL)
+  return result
 }
 
 export async function getNextUploadDelay(

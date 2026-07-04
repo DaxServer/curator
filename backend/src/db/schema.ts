@@ -7,6 +7,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
 
@@ -116,6 +117,7 @@ export const uploadRequests = mysqlTable(
       .onUpdateNow(),
   },
   (t) => [
+    uniqueIndex('upload_requests_batchid_key_uidx').on(t.batchid, t.key),
     index('upload_requests_batchid_idx').on(t.batchid),
     index('upload_requests_userid_idx').on(t.userid),
     index('upload_requests_status_idx').on(t.status),

@@ -53,7 +53,7 @@ const mockRetrySelectedUploadsToNewBatch = mock(async () => ({
   newBatchId: 0,
 }))
 const mockCreateUploadRequestsForBatch = mock(
-  async () => [] as { id: number; key: string; status: string }[],
+  async () => [] as { id: number; key: string; status: string; isNew: boolean }[],
 )
 const mockCancelBatchDal = mock(async () => new Map<number, string | null>())
 const mockUpdateJobTaskId = mock(async () => undefined)
@@ -684,8 +684,8 @@ describe('Handler.uploadSlice (batch found, items created)', () => {
     const { handler, sender } = makeHandler()
     mockGetBatch.mockImplementation(async () => fakeBatchItem({ id: 3, edit_group_id: 'eg-abc' }))
     mockCreateUploadRequestsForBatch.mockImplementation(async () => [
-      { id: 101, key: 'img-1', status: 'queued' },
-      { id: 102, key: 'img-2', status: 'queued' },
+      { id: 101, key: 'img-1', status: 'queued', isNew: true },
+      { id: 102, key: 'img-2', status: 'queued', isNew: true },
     ])
     mockGetRateLimitForBatch.mockImplementation(async () => ({
       uploadsPerPeriod: 10,
@@ -716,6 +716,49 @@ describe('Handler.uploadSlice (batch found, items created)', () => {
     expect(msg!.data).toHaveLength(2)
     expect(msg!.data[0]!.id).toBe('img-1')
     expect(mockEnqueueUpload).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not re-enqueue or re-consume rate limit for rows that already existed (resent slice)', async () => {
+    const { handler, sender } = makeHandler()
+    mockGetBatch.mockImplementation(async () => fakeBatchItem({ id: 3, edit_group_id: 'eg-abc' }))
+    mockCreateUploadRequestsForBatch.mockImplementation(async () => [
+      { id: 101, key: 'img-1', status: 'in_progress', isNew: false },
+      { id: 102, key: 'img-2', status: 'queued', isNew: true },
+    ])
+    mockGetRateLimitForBatch.mockImplementation(async () => ({
+      uploadsPerPeriod: 10,
+      periodSeconds: 60,
+    }))
+    mockGetNextUploadDelay.mockImplementation(async () => 0)
+    mockEnqueueUpload.mockImplementation(async () => 'job-1')
+    mockUpdateJobTaskId.mockImplementation(async () => undefined)
+
+    await handler.uploadSlice({
+      batchid: 3,
+      sliceid: 1,
+      items: [
+        { id: 'img-1', input: 'seq-1', title: 'File1.jpg', wikitext: '...' },
+        { id: 'img-2', input: 'seq-1', title: 'File2.jpg', wikitext: '...' },
+      ],
+    })
+
+    expect(mockGetNextUploadDelay).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueUpload).toHaveBeenCalledTimes(1)
+    expect(mockUpdateJobTaskId).toHaveBeenCalledTimes(1)
+    expect(mockUpdateJobTaskId).toHaveBeenCalledWith(102, 'job-1')
+
+    const msg = sender.messages.find((m) => m.type === 'UPLOAD_SLICE_ACK') as
+      | {
+          type: 'UPLOAD_SLICE_ACK'
+          data: { id: string; status: string }[]
+          sliceid: number
+        }
+      | undefined
+    expect(msg).toBeDefined()
+    expect(msg!.data).toEqual([
+      { id: 'img-1', status: 'in_progress' },
+      { id: 'img-2', status: 'queued' },
+    ])
   })
 })
 

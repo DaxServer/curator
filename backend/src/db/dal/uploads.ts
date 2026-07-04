@@ -328,8 +328,15 @@ export class UploadService {
     items: UploadItem[]
     handler: Handler
     encryptedAccessToken: string
-  }): Promise<{ id: number; key: string; status: UploadStatus }[]> {
+  }): Promise<{ id: number; key: string; status: UploadStatus; isNew: boolean }[]> {
     if (items.length === 0) return []
+    const keys = items.map((it) => it.id)
+    const preExisting = await this.db
+      .select({ key: uploadRequests.key })
+      .from(uploadRequests)
+      .where(and(eq(uploadRequests.batchid, batchid), inArray(uploadRequests.key, keys)))
+    const preExistingKeys = new Set(preExisting.map((r) => r.key))
+
     const rows = items.map((it) => ({
       batchid,
       userid,
@@ -349,14 +356,21 @@ export class UploadService {
       created_at: sql`CURRENT_TIMESTAMP`,
       updated_at: sql`CURRENT_TIMESTAMP`,
     }))
-    await this.db.insert(uploadRequests).values(rows)
-    const keys = rows.map((r) => r.key)
-    const inserted = await this.db
-      .select({ id: uploadRequests.id, key: uploadRequests.key })
+    await this.db
+      .insert(uploadRequests)
+      .values(rows)
+      .onDuplicateKeyUpdate({ set: { id: sql`${uploadRequests.id}` } })
+    const existing = await this.db
+      .select({ id: uploadRequests.id, key: uploadRequests.key, status: uploadRequests.status })
       .from(uploadRequests)
       .where(and(eq(uploadRequests.batchid, batchid), inArray(uploadRequests.key, keys)))
       .orderBy(asc(uploadRequests.id))
-    return inserted.map((r) => ({ id: r.id, key: r.key, status: 'queued' as const }))
+    return existing.map((r) => ({
+      id: r.id,
+      key: r.key,
+      status: r.status as UploadStatus,
+      isNew: !preExistingKeys.has(r.key),
+    }))
   }
 
   async markUploadsExpired(ids: number[]): Promise<void> {

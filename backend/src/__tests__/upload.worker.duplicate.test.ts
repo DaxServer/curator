@@ -6,11 +6,13 @@
 //
 // mock.module() is intentionally avoided for @backend/core/crypto and
 // @backend/mediawiki/client (both imported directly by other test files).
-// Instead, WorkerDeps injection supplies mock implementations inline.
+// @backend/db/dal/uploads is a real value import in uploads.dal.test.ts, so it is
+// injected via WorkerDeps.uploads instead of mock.module() here.
 // @backend/handlers/mapillary is module-mocked here because no other test
 // file imports it directly.
 
 import { DuplicateUploadError } from '@backend/core/errors'
+import type { UploadService } from '@backend/db/dal/uploads'
 import type { MediaWikiClient } from '@backend/mediawiki/client'
 import { buildStatementsFromMapillaryImage } from '@backend/mediawiki/sdc'
 import type { MediaImage } from '@backend/types/ws'
@@ -34,15 +36,15 @@ mock.module('@backend/db/client', () => ({ lazyDb: { client: {} } }))
 
 const mockUpdateStatus = mock(async () => {})
 const mockClearToken = mock(async () => {})
-const mockGetById = mock(async (_id: number) => null as unknown)
+const mockGetById = mock(
+  async (_id: number): Promise<Awaited<ReturnType<UploadService['getUploadById']>>> => null,
+)
 
-mock.module('@backend/db/dal/uploads', () => ({
-  UploadService: class {
-    updateUploadStatus = mockUpdateStatus
-    clearUploadAccessToken = mockClearToken
-    getUploadById = mockGetById
-  },
-}))
+const mockUploads = {
+  updateUploadStatus: mockUpdateStatus,
+  clearUploadAccessToken: mockClearToken,
+  getUploadById: mockGetById,
+}
 
 // MapillaryHandler is NOT imported by any other test file — safe to mock.
 const FAKE_IMAGE: MediaImage = {
@@ -148,9 +150,13 @@ function setupWorker(clientStub: MediaWikiClient, uploadOverrides: Record<string
   mockGetById.mockClear()
   capturedProcessor = undefined
 
-  mockGetById.mockImplementation(async () => makeUpload(uploadOverrides))
+  mockGetById.mockImplementation(
+    async () =>
+      makeUpload(uploadOverrides) as unknown as Awaited<ReturnType<UploadService['getUploadById']>>,
+  )
 
   createUploadWorker({} as Redis, {
+    uploads: mockUploads,
     decryptToken: () => ['tok-key', 'tok-secret'],
     makeClient: () => clientStub,
   })

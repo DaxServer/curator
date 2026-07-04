@@ -1,4 +1,5 @@
 import { HashLockError, SourceCdnError, StorageError } from '@backend/core/errors'
+import type { UploadService } from '@backend/db/dal/uploads'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
 
@@ -7,7 +8,8 @@ import type { Redis } from 'ioredis'
 // Only modules that no other test file imports directly are safe to mock here.
 // - bullmq: not imported by any other test ✓
 // - @backend/db/client: not imported by any other test ✓
-// - @backend/db/dal/uploads: only type-imported (erased at runtime) by ws.handler.test.ts ✓
+// @backend/db/dal/uploads is a real value import in uploads.dal.test.ts, so it is
+// injected via WorkerDeps.uploads instead of mock.module() here.
 
 // Capture the processor and event handlers registered by createUploadWorker.
 let capturedProcessor: ((job: unknown) => Promise<void>) | undefined
@@ -28,15 +30,15 @@ mock.module('@backend/db/client', () => ({ lazyDb: { client: {} } }))
 
 const mockUpdateStatus = mock(async () => {})
 const mockClearToken = mock(async () => {})
-const mockGetById = mock(async (_id: number) => null as unknown)
+const mockGetById = mock(
+  async (_id: number): Promise<Awaited<ReturnType<UploadService['getUploadById']>>> => null,
+)
 
-mock.module('@backend/db/dal/uploads', () => ({
-  UploadService: class {
-    updateUploadStatus = mockUpdateStatus
-    clearUploadAccessToken = mockClearToken
-    getUploadById = mockGetById
-  },
-}))
+const mockUploads = {
+  updateUploadStatus: mockUpdateStatus,
+  clearUploadAccessToken: mockClearToken,
+  getUploadById: mockGetById,
+}
 
 import { createUploadWorker } from '@backend/workers/upload.worker'
 
@@ -66,7 +68,7 @@ beforeEach(() => {
   mockUpdateStatus.mockClear()
   mockClearToken.mockClear()
   mockGetById.mockClear()
-  createUploadWorker(mockRedis)
+  createUploadWorker(mockRedis, { uploads: mockUploads })
 })
 
 // === Processor rethrows retryable errors without touching the DB ===
@@ -157,6 +159,7 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
     const mockGetDelay = mock(async () => 1500)
     const mockRemoveJob = mock(async () => {})
     createUploadWorker(mockRedis, {
+      uploads: mockUploads,
       enqueueUpload: mockEnqueue,
       getNextUploadDelay: mockGetDelay,
       removeUploadJob: mockRemoveJob,
@@ -178,7 +181,11 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
   it('StorageError: permanently fails when requeueCount reaches the limit', async () => {
     const mockEnqueue = mock(async () => 'new-job-id')
     const mockGetDelay = mock(async () => 1500)
-    createUploadWorker(mockRedis, { enqueueUpload: mockEnqueue, getNextUploadDelay: mockGetDelay })
+    createUploadWorker(mockRedis, {
+      uploads: mockUploads,
+      enqueueUpload: mockEnqueue,
+      getNextUploadDelay: mockGetDelay,
+    })
 
     const failedHandler = capturedHandlers.get('failed')
     expect(failedHandler).toBeDefined()

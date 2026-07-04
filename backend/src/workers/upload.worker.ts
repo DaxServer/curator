@@ -39,10 +39,11 @@ export type WorkerDeps = {
   enqueueUpload?: (data: UploadJobData, delayMs: number) => Promise<string>
   removeUploadJob?: (jobId: string) => Promise<void>
   getNextUploadDelay?: (userid: string, rateLimit: RateLimitInfo, redis: Redis) => Promise<number>
+  uploads?: Pick<UploadService, 'getUploadById' | 'updateUploadStatus' | 'clearUploadAccessToken'>
 }
 
 export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<UploadJobData> {
-  const uploads = new UploadService(lazyDb.client)
+  const uploads = deps?.uploads ?? new UploadService(lazyDb.client)
   const makeClient = deps?.makeClient ?? ((token) => new MediaWikiClient(token))
   const makeHandler = deps?.makeHandler ?? (() => new MapillaryHandler())
   const decryptTokenFn = deps?.decryptToken ?? decryptAccessToken
