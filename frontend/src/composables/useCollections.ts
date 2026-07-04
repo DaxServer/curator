@@ -19,7 +19,7 @@ import type { Image, Item } from '@frontend/types/image'
 import { UPLOAD_STATUS } from '@frontend/types/image'
 import { markRaw, watch } from 'vue'
 
-export const UPLOAD_SLICE_SIZE = 18
+export const UPLOAD_SLICE_SIZE = 100
 
 const toImage = (mediaImage: MediaImage): Image => ({
   ...mediaImage,
@@ -83,7 +83,7 @@ export const initCollectionsListeners = () => {
   const store = useCollectionsStore()
   const { buildDescription, getEffectiveTitle, wikitext } = useCommons()
   const { isDuplicateStatus } = useUploadStatus()
-  const { data, send } = useSocket
+  const { data, send, connected } = useSocket
 
   const sendSubscribeBatch = (batchId: number) => {
     if (store.isStatusChecking) return
@@ -284,21 +284,82 @@ export const initCollectionsListeners = () => {
     }
   }
 
+  const sendSlice = (sliceIndex: number) => {
+    if (!store.batchId || !connected.value) return
+    const start = sliceIndex * UPLOAD_SLICE_SIZE
+    const end = Math.min(start + UPLOAD_SLICE_SIZE, store.selectedItems.length)
+    const sliceItems = store.selectedItems.slice(start, end).map((item) => ({
+      id: item.id,
+      input: store.input,
+      title: getEffectiveTitle(item),
+      wikitext: wikitext(item),
+      labels: item.meta.description,
+      copyright_override: (item.meta.license?.trim() || store.globalLicense.trim()) !== '',
+    }))
+    send({
+      type: 'UPLOAD_SLICE',
+      data: {
+        batchid: store.batchId,
+        sliceid: sliceIndex,
+        handler: store.handler,
+        items: sliceItems,
+      },
+    })
+  }
+
+  // Sends every slice not yet acked. Slices skipped here because the socket was
+  // disconnected are picked up by the same call the next time `connected` flips
+  // true (see the watch() below) — sendSlice() never queues, so there is only
+  // ever one delivery path per slice, avoiding double-sends on reconnect.
+  const sendUnackedSlices = () => {
+    if (!store.batchId) return
+    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
+    if (totalSlices === 0) {
+      store.isLoading = false
+      store.isBatchCreated = true
+      sendSubscribeBatch(store.batchId)
+      return
+    }
+    for (let i = 0; i < totalSlices; i++) {
+      if (!store.ackedSliceIds.has(i)) sendSlice(i)
+    }
+  }
+
   const onBatchCreated = (batchId: number) => {
     store.batchId = batchId
-    store.uploadSliceIndex = 0
-    sendNextSlice()
+    store.ackedSliceIds = new Set()
+    if (!batchId) return
+    sendUnackedSlices()
   }
 
   const onUploadSliceAck = (sliceId: number, items: UploadSliceAckItem[]) => {
-    if (sliceId === store.uploadSliceIndex) {
-      store.uploadSliceIndex += 1
-      items.forEach(({ id, status }) => {
-        store.updateItem(id, 'status', status as UploadStatus)
-      })
-      sendNextSlice()
+    if (!store.batchId) return
+    if (!Number.isInteger(sliceId) || sliceId < 0) return
+    if (store.ackedSliceIds.has(sliceId)) return
+    store.ackedSliceIds.add(sliceId)
+    items.forEach(({ id, status }) => {
+      store.updateItem(id, 'status', status as UploadStatus)
+    })
+    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
+    if (store.ackedSliceIds.size >= totalSlices) {
+      store.isLoading = false
+      store.isBatchCreated = true
+      sendSubscribeBatch(store.batchId!)
     }
   }
+
+  const onSocketReconnect = () => {
+    if (!store.batchId || store.isBatchCreated) return
+    sendUnackedSlices()
+  }
+
+  watch(
+    connected,
+    (isConnected, wasConnected) => {
+      if (isConnected && wasConnected === false) onSocketReconnect()
+    },
+    { flush: 'sync' },
+  )
 
   const onRetryUploadsResponse = (newBatchId: number) => {
     store.setRetryNewBatchId(newBatchId)
@@ -362,40 +423,6 @@ export const initCollectionsListeners = () => {
     }
   })
 
-  const sendNextSlice = () => {
-    if (!store.batchId) return
-
-    const totalItems = store.selectedItems.length
-    const start = store.uploadSliceIndex * UPLOAD_SLICE_SIZE
-
-    if (start >= totalItems) {
-      store.isLoading = false
-      store.isBatchCreated = true
-      sendSubscribeBatch(store.batchId)
-      return
-    }
-
-    const end = Math.min(start + UPLOAD_SLICE_SIZE, totalItems)
-    const sliceItems = store.selectedItems.slice(start, end).map((item) => ({
-      id: item.id,
-      input: store.input,
-      title: getEffectiveTitle(item),
-      wikitext: wikitext(item),
-      labels: item.meta.description,
-      copyright_override: (item.meta.license?.trim() || store.globalLicense.trim()) !== '',
-    }))
-
-    send({
-      type: 'UPLOAD_SLICE',
-      data: {
-        batchid: store.batchId,
-        sliceid: store.uploadSliceIndex,
-        handler: store.handler,
-        items: sliceItems,
-      },
-    })
-  }
-
   return {
     onUploadsUpdate,
     onUploadsComplete,
@@ -410,6 +437,7 @@ export const initCollectionsListeners = () => {
     onPartialCollectionImages,
     onBatchCreated,
     onUploadSliceAck,
+    onSocketReconnect,
     onRetryUploadsResponse,
     onPresetsList,
   }

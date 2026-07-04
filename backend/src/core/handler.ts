@@ -231,7 +231,11 @@ export class Handler {
         return
       }
       const mwRetry = new MediaWikiClient(this.user.access_token)
-      const rateLimitRetry = await this.rateLimiter.getRateLimitForBatch(this.userid, mwRetry)
+      const rateLimitRetry = await this.rateLimiter.getRateLimitForBatch(
+        this.userid,
+        mwRetry,
+        this.redis,
+      )
       for (const uploadId of newUploadIds) {
         const delayMs = await this.rateLimiter.getNextUploadDelay(
           this.userid,
@@ -520,10 +524,11 @@ export class Handler {
         handler: handlerName,
         encryptedAccessToken,
       })
-      if (created.length > 0) {
+      const newlyCreated = created.filter((c) => c.isNew)
+      if (newlyCreated.length > 0) {
         const mw = new MediaWikiClient(this.user.access_token)
-        const rateLimit = await this.rateLimiter.getRateLimitForBatch(this.userid, mw)
-        for (const c of created) {
+        const rateLimit = await this.rateLimiter.getRateLimitForBatch(this.userid, mw, this.redis)
+        for (const c of newlyCreated) {
           const delayMs = await this.rateLimiter.getNextUploadDelay(
             this.userid,
             rateLimit,

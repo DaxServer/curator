@@ -25,22 +25,22 @@ export const createSocketModule = (
   timer = defaultTimer,
 ) => {
   const data = ref<ServerMessage | null>(null)
+  const connected = ref(false)
   let _ws: WsInstance | null = null
   let _reconnectDelay = RECONNECT_BASE_DELAY
   let _reconnectTimer: TimerHandle | null = null
   let _active = false
-  let _connected = false
   let _pendingQueue: ClientMessage[] = []
 
   const _onOpen = () => {
-    _connected = true
+    connected.value = true
     _reconnectDelay = RECONNECT_BASE_DELAY
     for (const msg of _pendingQueue) _ws?.send(msg)
     _pendingQueue = []
   }
 
   const _onClose = () => {
-    _connected = false
+    connected.value = false
     if (_active) _scheduleReconnect()
   }
 
@@ -55,7 +55,7 @@ export const createSocketModule = (
 
   const open = (isReconnect = false) => {
     _active = true
-    _connected = false
+    connected.value = false
     if (!isReconnect) {
       _pendingQueue = []
       _reconnectDelay = RECONNECT_BASE_DELAY
@@ -75,7 +75,7 @@ export const createSocketModule = (
   }
 
   const send = (msg: ClientMessage) => {
-    if (!_connected) {
+    if (!connected.value) {
       _pendingQueue.push(msg)
       return
     }
@@ -93,7 +93,7 @@ export const createSocketModule = (
     _ws = null
   }
 
-  return { data, open, send, close }
+  return { data, connected, open, send, close }
 }
 
 export const useSocket = createSocketModule()
