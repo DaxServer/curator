@@ -333,6 +333,7 @@ export const initCollectionsListeners = () => {
   }
 
   const onUploadSliceAck = (sliceId: number, items: UploadSliceAckItem[]) => {
+    if (!store.batchId) return
     if (!Number.isInteger(sliceId) || sliceId < 0) return
     if (store.ackedSliceIds.has(sliceId)) return
     store.ackedSliceIds.add(sliceId)

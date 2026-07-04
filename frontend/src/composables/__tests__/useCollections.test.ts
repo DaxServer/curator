@@ -1288,6 +1288,16 @@ describe('useCollections Listeners', () => {
       expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it('ignores a stale ack when no batch is in progress, without permanently locking status checking', () => {
+      store.batchId = null
+      store.ackedSliceIds = new Set()
+
+      listeners.onUploadSliceAck(0, [])
+
+      expect(mockSend).not.toHaveBeenCalled()
+      expect(store.isStatusChecking).toBe(false)
+    })
+
     it('ignores a duplicate ack for an already-acked slice id', () => {
       store.batchId = 100
       store.ackedSliceIds = new Set([0])
