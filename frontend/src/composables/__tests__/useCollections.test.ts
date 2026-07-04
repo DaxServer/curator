@@ -7,8 +7,8 @@ import type {
   UploadUpdateItem,
 } from '@backend/types/ws'
 import { type Image, type Item, UPLOAD_STATUS } from '@frontend/types/image'
-import { type Mock, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { ref } from 'vue'
+import { type Mock, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { type EffectScope, effectScope, ref } from 'vue'
 
 type BatchesListData = Extract<ServerMessage, { type: 'BATCHES_LIST' }>['data']
 type BatchUploadsListData = Extract<ServerMessage, { type: 'BATCH_UPLOADS_LIST' }>['data']
@@ -75,6 +75,7 @@ describe('useCollections Listeners', () => {
   let initCollectionsListeners: typeof InitCollectionsListenersType
   let listeners: ReturnType<typeof InitCollectionsListenersType>
   let store: ReturnType<typeof useCollectionsStore>
+  let scope: EffectScope
 
   beforeAll(async () => {
     const mod = await import('../useCollections')
@@ -86,7 +87,12 @@ describe('useCollections Listeners', () => {
     store = useCollectionsStore()
     mockSend.mockClear()
     mockSocketConnected.value = false
-    listeners = initCollectionsListeners()
+    scope = effectScope()
+    listeners = scope.run(() => initCollectionsListeners())!
+  })
+
+  afterEach(() => {
+    scope.stop()
   })
 
   describe('onUploadsUpdate', () => {
@@ -1090,6 +1096,7 @@ describe('useCollections Listeners', () => {
 
   describe('onBatchCreated', () => {
     it('should set batchId and send first slice', () => {
+      mockSocketConnected.value = true
       // Mock selectedItems logic via items
       const newItems: Record<string, Item> = {}
       for (let i = 0; i < 15; i++) {
@@ -1110,7 +1117,7 @@ describe('useCollections Listeners', () => {
       listeners.onBatchCreated(100)
 
       expect(store.batchId).toBe(100)
-      expect(store.uploadSliceIndex).toBe(0)
+      expect(store.ackedSliceIds.size).toBe(0)
 
       expect(mockSend).toHaveBeenCalled()
       const calls = (mockSend as Mock<(data: unknown) => void>).mock.calls
@@ -1160,7 +1167,32 @@ describe('useCollections Listeners', () => {
       expect(store.batchId).toBe(0)
     })
 
+    it('does not send slices while offline, relying on the connected watcher to flush them later', () => {
+      mockSocketConnected.value = false
+      const newItems: Record<string, Item> = {}
+      for (let i = 0; i < 15; i++) {
+        const id = `img${i}`
+        newItems[id] = createMockItem({
+          id,
+          meta: {
+            selected: true,
+            license: '',
+            description: { value: '', language: 'en' },
+            categories: '',
+          },
+          image: createMockImage({ id }),
+        })
+      }
+      store.replaceItems(newItems)
+
+      listeners.onBatchCreated(100)
+
+      expect(store.batchId).toBe(100)
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it(`should handle exactly ${UPLOAD_SLICE_SIZE} selected items (one full slice)`, () => {
+      mockSocketConnected.value = true
       const newItems: Record<string, Item> = {}
       for (let i = 0; i < UPLOAD_SLICE_SIZE; i++) {
         const id = `img${i}`
@@ -1180,7 +1212,7 @@ describe('useCollections Listeners', () => {
       listeners.onBatchCreated(100)
 
       expect(store.batchId).toBe(100)
-      expect(store.uploadSliceIndex).toBe(0)
+      expect(store.ackedSliceIds.size).toBe(0)
       expect(store.isBatchCreated).toBe(false) // Not created yet, need to wait for ACK
 
       expect(mockSend).toHaveBeenCalled()
@@ -1201,6 +1233,7 @@ describe('useCollections Listeners', () => {
     })
 
     it(`should send all slices immediately for ${UPLOAD_SLICE_SIZE * 2} selected items`, () => {
+      mockSocketConnected.value = true
       const newItems: Record<string, Item> = {}
       for (let i = 0; i < UPLOAD_SLICE_SIZE * 2; i++) {
         const id = `img${i}`
@@ -1230,9 +1263,8 @@ describe('useCollections Listeners', () => {
   })
 
   describe('onUploadSliceAck', () => {
-    it('should increment uploadSliceIndex but not send the next slice', () => {
+    it('adds the slice id to ackedSliceIds and does not send anything else', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       const newItems: Record<string, Item> = {}
       for (let i = 0; i < UPLOAD_SLICE_SIZE + 5; i++) {
@@ -1252,23 +1284,48 @@ describe('useCollections Listeners', () => {
 
       listeners.onUploadSliceAck(0, [])
 
-      expect(store.uploadSliceIndex).toBe(1)
+      expect(store.ackedSliceIds.has(0)).toBe(true)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
-    it('should not send next slice if index does not match', () => {
+    it('ignores a duplicate ack for an already-acked slice id', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 1
+      store.ackedSliceIds = new Set([0])
 
       listeners.onUploadSliceAck(0, [])
 
-      expect(store.uploadSliceIndex).toBe(1)
+      expect(store.ackedSliceIds.size).toBe(1)
       expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it('acks arriving out of order still complete the batch once all are seen', () => {
+      store.batchId = 100
+      const newItems: Record<string, Item> = {}
+      for (let i = 0; i < UPLOAD_SLICE_SIZE * 3; i++) {
+        const id = `img${i}`
+        newItems[id] = createMockItem({
+          id,
+          meta: {
+            selected: true,
+            license: '',
+            description: { value: '', language: 'en' },
+            categories: '',
+          },
+          image: createMockImage({ id }),
+        })
+      }
+      store.replaceItems(newItems)
+
+      listeners.onUploadSliceAck(0, [])
+      listeners.onUploadSliceAck(2, [])
+      listeners.onUploadSliceAck(1, [])
+
+      expect(store.ackedSliceIds.size).toBe(3)
+      expect(store.isBatchCreated).toBe(true)
     })
 
     it('should update item statuses from ACK response', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       const newItems: Record<string, Item> = {}
       for (let i = 0; i < 5; i++) {
@@ -1295,7 +1352,7 @@ describe('useCollections Listeners', () => {
 
       listeners.onUploadSliceAck(0, ackItems)
 
-      expect(store.uploadSliceIndex).toBe(1)
+      expect(store.ackedSliceIds.has(0)).toBe(true)
       expect(store.items.img0!.meta.status).toBe(UPLOAD_STATUS.Queued)
       expect(store.items.img1!.meta.status).toBe(UPLOAD_STATUS.Queued)
       expect(store.items.img2!.meta.status).toBe(UPLOAD_STATUS.InProgress)
@@ -1304,6 +1361,7 @@ describe('useCollections Listeners', () => {
     })
 
     it('each sent slice has correct batchid, handler, and up to UPLOAD_SLICE_SIZE items', () => {
+      mockSocketConnected.value = true
       store.input = 'input'
       store.globalLicense = ''
 
@@ -1343,57 +1401,43 @@ describe('useCollections Listeners', () => {
 
     it('should handle undefined slice ID', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       listeners.onUploadSliceAck(undefined as unknown as number, [])
 
-      expect(store.uploadSliceIndex).toBe(0)
+      expect(store.ackedSliceIds.size).toBe(0)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
     it('should handle null slice ID', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       listeners.onUploadSliceAck(null as unknown as number, [])
 
-      expect(store.uploadSliceIndex).toBe(0)
+      expect(store.ackedSliceIds.size).toBe(0)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
     it('should handle NaN slice ID', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       listeners.onUploadSliceAck(NaN, [])
 
-      expect(store.uploadSliceIndex).toBe(0)
+      expect(store.ackedSliceIds.size).toBe(0)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
     it('should handle negative slice ID', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 0
 
       listeners.onUploadSliceAck(-1, [])
 
-      expect(store.uploadSliceIndex).toBe(0)
-      expect(mockSend).not.toHaveBeenCalled()
-    })
-
-    it('should handle slice ID when uploadSliceIndex is negative', () => {
-      store.batchId = 100
-      store.uploadSliceIndex = -1
-
-      listeners.onUploadSliceAck(0, [])
-
-      expect(store.uploadSliceIndex).toBe(-1)
+      expect(store.ackedSliceIds.size).toBe(0)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
     it('should complete all slices and subscribe to batch', () => {
       store.batchId = 100
-      store.uploadSliceIndex = 1
+      store.ackedSliceIds = new Set([0])
       store.isLoading = true
 
       const newItems: Record<string, Item> = {}
@@ -1414,22 +1458,17 @@ describe('useCollections Listeners', () => {
 
       listeners.onUploadSliceAck(1, [])
 
-      expect(store.uploadSliceIndex).toBe(2)
+      expect(store.ackedSliceIds.size).toBe(2)
       expect(store.isBatchCreated).toBe(true)
       expect(mockSend).toHaveBeenCalled()
       const calls = (mockSend as Mock<(data: unknown) => void>).mock.calls
-      expect(calls.length).toBeGreaterThan(0)
       const arg = calls[calls.length - 1]![0]
       const sentMsg = arg as ClientMessage
-
-      // With UPLOAD_SLICE_SIZE + 5 items, slice index 2 means start at UPLOAD_SLICE_SIZE * 2,
-      // which is >= UPLOAD_SLICE_SIZE + 5, so it should complete
-      if (sentMsg.type === 'UPLOAD_SLICE') {
-        expect(sentMsg.data.items).toHaveLength(0) // Empty slice, should trigger subscription
-      }
+      expect(sentMsg).toMatchObject({ type: 'SUBSCRIBE_BATCH', data: 100 })
     })
 
     it('sets copyright_override true when item license is set', () => {
+      mockSocketConnected.value = true
       store.input = 'input'
       store.globalLicense = ''
 
@@ -1460,6 +1499,7 @@ describe('useCollections Listeners', () => {
     })
 
     it('sets copyright_override true when globalLicense is set', () => {
+      mockSocketConnected.value = true
       store.input = 'input'
       store.globalLicense = 'CC-BY-4.0'
 
@@ -1510,9 +1550,10 @@ describe('useCollections Listeners', () => {
     }
 
     it('resends unACKed slices when reconnected during an active batch upload', () => {
+      mockSocketConnected.value = true
       store.replaceItems(makeItems(UPLOAD_SLICE_SIZE * 3))
       store.batchId = 100
-      store.uploadSliceIndex = 1
+      store.ackedSliceIds = new Set([0])
       store.isBatchCreated = false
 
       listeners.onSocketReconnect()
@@ -1524,7 +1565,20 @@ describe('useCollections Listeners', () => {
       expect((sliceCalls[1]![0] as UploadSliceMsg).data.sliceid).toBe(2)
     })
 
+    it('does not send anything while still offline', () => {
+      mockSocketConnected.value = false
+      store.replaceItems(makeItems(UPLOAD_SLICE_SIZE * 3))
+      store.batchId = 100
+      store.ackedSliceIds = new Set([0])
+      store.isBatchCreated = false
+
+      listeners.onSocketReconnect()
+
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it('does nothing when no batch is in progress', () => {
+      mockSocketConnected.value = true
       store.replaceItems(makeItems(UPLOAD_SLICE_SIZE * 2))
       store.batchId = null
       store.isBatchCreated = false
@@ -1535,6 +1589,7 @@ describe('useCollections Listeners', () => {
     })
 
     it('does nothing when batch upload is already complete', () => {
+      mockSocketConnected.value = true
       store.replaceItems(makeItems(UPLOAD_SLICE_SIZE * 2))
       store.batchId = 100
       store.isBatchCreated = true
@@ -1545,9 +1600,10 @@ describe('useCollections Listeners', () => {
     })
 
     it('does nothing when all slices have been ACKed', () => {
+      mockSocketConnected.value = true
       store.replaceItems(makeItems(UPLOAD_SLICE_SIZE))
       store.batchId = 100
-      store.uploadSliceIndex = 1
+      store.ackedSliceIds = new Set([0])
       store.isBatchCreated = false
 
       listeners.onSocketReconnect()

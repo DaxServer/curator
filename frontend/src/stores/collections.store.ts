@@ -31,7 +31,7 @@ export const useCollectionsStore = defineStore('collections', () => {
   const isBatchLoading = ref(false)
   const batchLoadingStatus = ref<string | null>(null)
   const totalImageIds = ref<string[]>([])
-  const uploadSliceIndex = ref(0)
+  const ackedSliceIds = ref<Set<number>>(new Set())
   const isBatchCreated = ref(false)
   const showSelectedOnly = ref(true)
   const viewMode = ref<Layout>('list')
@@ -318,7 +318,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     isBatchLoading.value = false
     batchLoadingStatus.value = null
     totalImageIds.value = []
-    uploadSliceIndex.value = 0
+    ackedSliceIds.value = new Set()
     isBatchCreated.value = false
     retryNewBatchId.value = null
     // Don't clear presets - they are user-specific, not collection-specific
@@ -387,7 +387,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     batchLoadingStatus,
     totalImageIds,
     loadedCount,
-    uploadSliceIndex,
+    ackedSliceIds,
     isBatchCreated,
     presets,
     currentPresetId,

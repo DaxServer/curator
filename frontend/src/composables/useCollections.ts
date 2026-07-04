@@ -285,7 +285,7 @@ export const initCollectionsListeners = () => {
   }
 
   const sendSlice = (sliceIndex: number) => {
-    if (!store.batchId) return
+    if (!store.batchId || !connected.value) return
     const start = sliceIndex * UPLOAD_SLICE_SIZE
     const end = Math.min(start + UPLOAD_SLICE_SIZE, store.selectedItems.length)
     const sliceItems = store.selectedItems.slice(start, end).map((item) => ({
@@ -307,30 +307,40 @@ export const initCollectionsListeners = () => {
     })
   }
 
-  const onBatchCreated = (batchId: number) => {
-    store.batchId = batchId
-    store.uploadSliceIndex = 0
-    if (!batchId) return
+  // Sends every slice not yet acked. Slices skipped here because the socket was
+  // disconnected are picked up by the same call the next time `connected` flips
+  // true (see the watch() below) — sendSlice() never queues, so there is only
+  // ever one delivery path per slice, avoiding double-sends on reconnect.
+  const sendUnackedSlices = () => {
+    if (!store.batchId) return
     const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
     if (totalSlices === 0) {
       store.isLoading = false
       store.isBatchCreated = true
-      sendSubscribeBatch(batchId)
+      sendSubscribeBatch(store.batchId)
       return
     }
     for (let i = 0; i < totalSlices; i++) {
-      sendSlice(i)
+      if (!store.ackedSliceIds.has(i)) sendSlice(i)
     }
   }
 
+  const onBatchCreated = (batchId: number) => {
+    store.batchId = batchId
+    store.ackedSliceIds = new Set()
+    if (!batchId) return
+    sendUnackedSlices()
+  }
+
   const onUploadSliceAck = (sliceId: number, items: UploadSliceAckItem[]) => {
-    if (sliceId !== store.uploadSliceIndex) return
-    store.uploadSliceIndex += 1
+    if (!Number.isInteger(sliceId) || sliceId < 0) return
+    if (store.ackedSliceIds.has(sliceId)) return
+    store.ackedSliceIds.add(sliceId)
     items.forEach(({ id, status }) => {
       store.updateItem(id, 'status', status as UploadStatus)
     })
     const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
-    if (store.uploadSliceIndex >= totalSlices) {
+    if (store.ackedSliceIds.size >= totalSlices) {
       store.isLoading = false
       store.isBatchCreated = true
       sendSubscribeBatch(store.batchId!)
@@ -339,10 +349,7 @@ export const initCollectionsListeners = () => {
 
   const onSocketReconnect = () => {
     if (!store.batchId || store.isBatchCreated) return
-    const totalSlices = Math.ceil(store.selectedItems.length / UPLOAD_SLICE_SIZE)
-    for (let i = store.uploadSliceIndex; i < totalSlices; i++) {
-      sendSlice(i)
-    }
+    sendUnackedSlices()
   }
 
   watch(
