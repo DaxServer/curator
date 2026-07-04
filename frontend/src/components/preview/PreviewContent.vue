@@ -27,8 +27,7 @@ const labels = computed(() => [
       </div>
       <pre
         class="text-xs bg-surface-100 p-2 rounded overflow-x-auto font-mono text-surface-700 border border-surface-200"
-        >{{ wikitext(item).trim() }}</pre
-      >
+        >{{ wikitext(item).trim() }}</pre>
     </div>
 
     <div class="flex flex-col gap-2">

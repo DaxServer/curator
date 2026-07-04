@@ -19,25 +19,23 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test'
 const mockGetBatches = mock(async () => [] as BatchItem[])
 const mockCountBatches = mock(async () => 0)
 const mockGetBatch = mock(async (_id: number) => null as BatchItem | null)
-const mockCreateBatch = mock(
-  async (_userid: string, _username: string): Promise<BatchItem> => ({
-    id: 42,
-    userid: '1',
-    username: 'alice',
-    edit_group_id: 'eg-abc',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    stats: {
-      total: 0,
-      queued: 0,
-      in_progress: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-      duplicate: 0,
-    },
-  }),
-)
+const mockCreateBatch = mock(async (_userid: string, _username: string): Promise<BatchItem> => ({
+  id: 42,
+  userid: '1',
+  username: 'alice',
+  edit_group_id: 'eg-abc',
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  stats: {
+    total: 0,
+    queued: 0,
+    in_progress: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    duplicate: 0,
+  },
+}))
 const mockGetBatchIdsWithRecentChanges = mock(async () => [] as number[])
 const mockGetBatchesMinimal = mock(async () => [])
 const mockGetLatestUpdateTime = mock(async () => null as Date | null)
@@ -475,8 +473,7 @@ describe('Handler.fetchBatchUploads (not found)', () => {
     await handler.fetchBatchUploads({ batch_id: 999, page_size: 100 })
 
     const msg = sender.messages.find((m) => m.type === 'ERROR') as
-      | { type: 'ERROR'; data: string }
-      | undefined
+      { type: 'ERROR'; data: string } | undefined
     expect(msg).toBeDefined()
     expect(msg!.data).toContain('not found')
   })
@@ -490,8 +487,7 @@ describe('Handler.fetchBatch', () => {
     await handler.fetchBatch(7)
 
     const msg = sender.messages.find((m) => m.type === 'BATCH_INFO') as
-      | { type: 'BATCH_INFO'; data: { batch: { id: number } } }
-      | undefined
+      { type: 'BATCH_INFO'; data: { batch: { id: number } } } | undefined
     expect(msg).toBeDefined()
     expect(msg!.data.batch.id).toBe(7)
   })
@@ -503,8 +499,7 @@ describe('Handler.fetchBatch', () => {
     await handler.fetchBatch(999)
 
     const msg = sender.messages.find((m) => m.type === 'ERROR') as
-      | { type: 'ERROR'; data: string }
-      | undefined
+      { type: 'ERROR'; data: string } | undefined
     expect(msg).toBeDefined()
     expect(msg!.data).toContain('not found')
   })
