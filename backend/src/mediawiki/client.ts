@@ -7,7 +7,7 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
-import { elapsed, logger } from '@backend/core/logger'
+import { elapsed, idTag, logger } from '@backend/core/logger'
 import { buildAuthHeader } from '@backend/core/oauthClient'
 import { withCsrfTokenRetry } from '@backend/mediawiki/tokenRetry'
 import type { Redis } from 'ioredis'
@@ -238,7 +238,8 @@ export class MediaWikiClient {
     const sha1 = createHash('sha1').update(buffer).digest('hex')
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE)
     const start = process.hrtime.bigint()
-    logger.info(`[mw] uploading ${filename} (${buffer.length} bytes, ${totalChunks} chunks)`)
+    const tag = idTag(uploadId, batchId)
+    logger.info(`[mw] ${tag} uploading ${filename} (${buffer.length} bytes, ${totalChunks} chunks)`)
 
     const duplicates = await this.findDuplicates(sha1)
     if (duplicates.length > 0) {
@@ -275,7 +276,7 @@ export class MediaWikiClient {
         }
 
         const chunkResponse = await withCsrfTokenRetry(
-          `[mw] uploadFile chunk ${offset / CHUNK_SIZE + 1}/${totalChunks}`,
+          `[mw] ${tag} uploadFile chunk ${offset / CHUNK_SIZE + 1}/${totalChunks}`,
           () => this.getCsrfToken(),
           (t) => this.apiUploadChunk(buildFormData(t)),
           token,
@@ -300,10 +301,10 @@ export class MediaWikiClient {
         const upload = result.upload as Record<string, unknown>
         stashKey = upload.filekey as string
         const chunkNum = offset / CHUNK_SIZE + 1
-        logger.info(`[mw] chunk ${chunkNum}/${totalChunks} uploaded`)
+        logger.info(`[mw] ${tag} chunk ${chunkNum}/${totalChunks} uploaded`)
       }
 
-      logger.info(`[mw] final commit for ${filename}`)
+      logger.info(`[mw] ${tag} final commit for ${filename}`)
       let commitResult: Record<string, unknown> | null = null
       for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
         const buildFormData = (t: string) => {
@@ -318,7 +319,7 @@ export class MediaWikiClient {
         }
 
         const commitResponse = await withCsrfTokenRetry(
-          `[mw] uploadFile commit (attempt ${attempt + 1})`,
+          `[mw] ${tag} uploadFile commit (attempt ${attempt + 1})`,
           () => this.getCsrfToken(),
           (t) => this.apiUploadChunk(buildFormData(t), true),
           token,
@@ -329,7 +330,7 @@ export class MediaWikiClient {
         if (errorObj) {
           if (errorObj.code === 'uploadstash-file-not-found' && attempt < STASH_RETRY_LIMIT) {
             logger.warn(
-              `[mw] stash file not found on attempt ${attempt + 1}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
+              `[mw] ${tag} stash file not found on attempt ${attempt + 1}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
             )
             await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
             continue
@@ -364,8 +365,8 @@ export class MediaWikiClient {
           )
         }
         logger.warn(
-          { uploadId, filename, result: upload.result, warnings },
-          `[mw] unexpected upload result during commit`,
+          { filename, result: upload.result, warnings },
+          `[mw] ${tag} unexpected upload result during commit`,
         )
         throw new Error(`Unexpected upload result: ${upload.result}`)
       }
@@ -374,7 +375,7 @@ export class MediaWikiClient {
       const upload = commitResult.upload as Record<string, unknown>
       const imageinfo = upload.imageinfo as Record<string, string>
       await redis.del(lockKey)
-      logger.info(`[mw] uploaded ${filename} | ${elapsed(start)}`)
+      logger.info(`[mw] ${tag} uploaded ${filename} | ${elapsed(start)}`)
       return imageinfo.descriptionurl!
     } catch (err) {
       await redis.del(lockKey)
@@ -387,13 +388,14 @@ export class MediaWikiClient {
     claims: unknown[] | null,
     labels: Record<string, { language: string; value: string }> | null,
     editSummary: string,
+    tag: string,
   ): Promise<void> {
     const start = process.hrtime.bigint()
     const payload: Record<string, unknown> = {}
     if (claims) payload.claims = claims
     if (labels) payload.labels = labels
     const { result } = await withCsrfTokenRetry(
-      `[mw] applySdc ${filename}`,
+      `[mw] ${tag} applySdc ${filename}`,
       () => this.getCsrfToken(),
       (token) =>
         this.apiRequest(
@@ -404,10 +406,10 @@ export class MediaWikiClient {
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
-    logger.info(`[mw] sdc applied to ${filename} | ${elapsed(start)}`)
+    logger.info(`[mw] ${tag} sdc applied to ${filename} | ${elapsed(start)}`)
   }
 
-  async nullEdit(filename: string): Promise<void> {
+  async nullEdit(filename: string, tag: string): Promise<void> {
     const start = process.hrtime.bigint()
     for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
       try {
@@ -425,7 +427,7 @@ export class MediaWikiClient {
         const mainSlot = (slots.main as Record<string, unknown>) ?? {}
         const content = (mainSlot.content as string) ?? ''
         const { result } = await withCsrfTokenRetry(
-          `[mw] nullEdit ${filename}`,
+          `[mw] ${tag} nullEdit ${filename}`,
           () => this.getCsrfToken(),
           (token) =>
             this.apiRequest({ action: 'edit' }, 'POST', {
@@ -438,12 +440,12 @@ export class MediaWikiClient {
         )
         if (result.error)
           throw new Error((result.error as Record<string, string>).info ?? 'null edit failed')
-        logger.info(`[mw] null edit on ${filename} | ${elapsed(start)}`)
+        logger.info(`[mw] ${tag} null edit on ${filename} | ${elapsed(start)}`)
         return
       } catch (err) {
         if (attempt < STASH_RETRY_LIMIT) {
           logger.warn(
-            `[mw] null edit attempt ${attempt + 1} failed for ${filename}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
+            `[mw] ${tag} null edit attempt ${attempt + 1} failed for ${filename}, retrying in ${STASH_RETRY_DELAY_MS}ms`,
           )
           await new Promise((resolve) => setTimeout(resolve, STASH_RETRY_DELAY_MS))
         } else {

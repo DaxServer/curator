@@ -7,7 +7,7 @@ import {
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
-import { logger } from '@backend/core/logger'
+import { idTag, logger } from '@backend/core/logger'
 import type { RateLimitInfo } from '@backend/core/rateLimiter'
 import { getNextUploadDelay as defaultGetNextUploadDelay } from '@backend/core/rateLimiter'
 import { lazyDb } from '@backend/db/client'
@@ -56,24 +56,22 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
     'uploads',
     async (job) => {
       const { uploadId, batchId, editGroupId } = job.data
-      logger.info(`[worker] [${uploadId}/${batchId}] task started (job: ${job.id})`)
+      const tag = idTag(uploadId, batchId)
+      logger.info(`[worker] ${tag} task started (job: ${job.id})`)
 
       const upload = await uploads.getUploadById(uploadId)
       if (!upload) {
-        logger.error(
-          { uploadId, batchId },
-          `[worker] [${uploadId}/${batchId}] upload not found, skipping`,
-        )
+        logger.error(`[worker] ${tag} upload not found, skipping`)
         return
       }
 
       if (upload.status === 'cancelled') {
-        logger.info(`[worker] [${uploadId}/${batchId}] skipping cancelled upload`)
+        logger.info(`[worker] ${tag} skipping cancelled upload`)
         return
       }
 
       if (!upload.access_token) {
-        logger.warn(`[worker] [${uploadId}/${batchId}] no access token, marking failed`)
+        logger.warn(`[worker] ${tag} no access token, marking failed`)
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
@@ -85,7 +83,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       try {
         accessToken = decryptTokenFn(upload.access_token)
       } catch {
-        logger.warn(`[worker] [${uploadId}/${batchId}] failed to decrypt token, marking failed`)
+        logger.warn(`[worker] ${tag} failed to decrypt token, marking failed`)
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'error',
           message: 'Your session has expired. Please log in and retry.',
@@ -97,9 +95,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
 
       const { blacklisted, reason } = await mw.checkTitleBlacklisted(upload.filename)
       if (blacklisted) {
-        logger.warn(
-          `[worker] [${uploadId}/${batchId}] title blacklisted: ${upload.filename} — ${reason}`,
-        )
+        logger.warn(`[worker] ${tag} title blacklisted: ${upload.filename} — ${reason}`)
         await uploads.updateUploadStatus(uploadId, 'failed', {
           type: 'title_blacklisted',
           message: reason,
@@ -109,18 +105,20 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
       }
 
       const handler = makeHandler()
-      logger.info(`[worker] [${uploadId}/${batchId}] fetching image ${upload.key} from mapillary`)
-      const images = await handler.fetchImagesBatch([upload.key], upload.collection ?? upload.key)
+      logger.info(`[worker] ${tag} fetching image ${upload.key} from mapillary`)
+      const images = await handler.fetchImagesBatch(
+        [upload.key],
+        upload.collection ?? upload.key,
+        tag,
+      )
       const image = images.find((i) => i.id === upload.key)
 
       if (!image) {
-        logger.warn(
-          `[worker] [${uploadId}/${batchId}] image ${upload.key} not found in mapillary, will retry`,
-        )
+        logger.warn(`[worker] ${tag} image ${upload.key} not found in mapillary, will retry`)
         throw new Error(`Image ${upload.key} not found in Mapillary — will retry`)
       }
 
-      logger.info(`[worker] [${uploadId}/${batchId}] starting upload: ${upload.filename}`)
+      logger.info(`[worker] ${tag} starting upload: ${upload.filename}`)
       await uploads.updateUploadStatus(uploadId, 'in_progress')
 
       const summary = buildEditSummary(upload.key, batchId, editGroupId)
@@ -141,21 +139,21 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         const labelsPayload = labels
           ? { [labels.language]: { language: labels.language, value: labels.value } }
           : null
-        logger.info(`[worker] [${uploadId}/${batchId}] applying sdc`)
-        await mw.applySdc(upload.filename, claims, labelsPayload, summary)
+        logger.info(`[worker] ${tag} applying sdc`)
+        await mw.applySdc(upload.filename, claims, labelsPayload, summary, tag)
 
-        logger.info(`[worker] [${uploadId}/${batchId}] uploaded to ${fileUrl}`)
+        logger.info(`[worker] ${tag} uploaded to ${fileUrl}`)
         await uploads.updateUploadStatus(uploadId, 'completed', null, fileUrl)
         await uploads.clearUploadAccessToken(uploadId)
-        logger.info(`[worker] [${uploadId}/${batchId}] task completed (job: ${job.id})`)
+        logger.info(`[worker] ${tag} task completed (job: ${job.id})`)
         try {
-          await mw.nullEdit(upload.filename)
+          await mw.nullEdit(upload.filename, tag)
         } catch (e) {
-          logger.warn({ uploadId, err: e }, '[worker] null edit failed after upload')
+          logger.warn({ err: e }, `[worker] ${tag} null edit failed after upload`)
         }
       } catch (err) {
         if (err instanceof DuplicateUploadError) {
-          logger.info(`[worker] [${uploadId}/${batchId}] duplicate upload detected`)
+          logger.info(`[worker] ${tag} duplicate upload detected`)
           const links = err.duplicates
 
           if (links.length > 0) {
@@ -173,9 +171,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
             const labelsDelta = computeLabelsDelta(existingSdc?.labels, labelsPayload)
 
             if (claimsDelta.length === 0 && !labelsDelta) {
-              logger.info(
-                `[worker] [${uploadId}/${batchId}] sdc already up to date on ${dupeFilename}`,
-              )
+              logger.info(`[worker] ${tag} sdc already up to date on ${dupeFilename}`)
               await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                 type: 'duplicated_sdc_not_updated',
                 links,
@@ -188,6 +184,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                   claimsDelta.length > 0 ? claimsDelta : null,
                   labelsDelta,
                   summary,
+                  tag,
                 )
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_updated', {
                   type: 'duplicated_sdc_updated',
@@ -195,18 +192,15 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
                   message: 'File already exists on Commons. SDC updated.',
                 })
                 try {
-                  await mw.nullEdit(dupeFilename)
+                  await mw.nullEdit(dupeFilename, tag)
                 } catch (e) {
                   logger.warn(
-                    { uploadId, err: e },
-                    '[worker] null edit failed after duplicate sdc update',
+                    { err: e },
+                    `[worker] ${tag} null edit failed after duplicate sdc update`,
                   )
                 }
               } catch (e) {
-                logger.warn(
-                  { uploadId, batchId, err: e },
-                  '[worker] sdc update failed on duplicate',
-                )
+                logger.warn({ err: e }, `[worker] ${tag} sdc update failed on duplicate`)
                 await uploads.updateUploadStatus(uploadId, 'duplicated_sdc_not_updated', {
                   type: 'duplicated_sdc_not_updated',
                   links,
@@ -215,7 +209,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
               }
             }
           } else {
-            logger.info(`[worker] [${uploadId}/${batchId}] duplicate, no existing file links`)
+            logger.info(`[worker] ${tag} duplicate, no existing file links`)
             await uploads.updateUploadStatus(uploadId, 'duplicate', {
               type: 'duplicate',
               links: [],
@@ -224,7 +218,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
           }
 
           await uploads.clearUploadAccessToken(uploadId)
-          logger.info(`[worker] [${uploadId}/${batchId}] task completed (job: ${job.id})`)
+          logger.info(`[worker] ${tag} task completed (job: ${job.id})`)
           return
         }
 
@@ -238,7 +232,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         }
 
         const message = err instanceof Error ? err.message : 'Unknown error'
-        logger.error({ uploadId, batchId, err }, '[worker] upload failed')
+        logger.error({ err }, `[worker] ${tag} upload failed`)
         await uploads.updateUploadStatus(uploadId, 'failed', { type: 'error', message })
         await uploads.clearUploadAccessToken(uploadId)
       }
@@ -251,41 +245,38 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
   )
 
   worker.on('failed', async (job, err) => {
-    const uploadId = job?.data.uploadId
-    const batchId = job?.data.batchId
     if (!job) return
+    const { uploadId, batchId } = job.data
+    const tag = idTag(uploadId, batchId)
     // BullMQ fires 'failed' on every attempt, not just the final one.
     // For errors that rely on BullMQ's built-in retry (not StorageError's custom requeue),
     // reset status to queued on intermediate attempts — the access token must stay intact for retries.
     if (!(err instanceof StorageError) && job.attemptsMade < (job.opts.attempts ?? 1)) {
-      logger.warn(
-        { jobId: job.id, err },
-        `[worker] [${uploadId}/${batchId}] job attempt failed, will retry`,
-      )
+      logger.warn({ jobId: job.id, err }, `[worker] ${tag} job attempt failed, will retry`)
       try {
         await uploads.updateUploadStatus(job.data.uploadId, 'queued')
       } catch (dbErr) {
         logger.error(
           { jobId: job.id, err: dbErr },
-          `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
+          `[worker] ${tag} failed to update db status after job failure`,
         )
       }
       return
     }
-    logger.error({ jobId: job.id, err }, `[worker] [${uploadId}/${batchId}] job permanently failed`)
+    logger.error({ jobId: job.id, err }, `[worker] ${tag} job permanently failed`)
     try {
       if (err instanceof StorageError) {
         const count = job.data.requeueCount ?? 0
         if (count >= MAX_STORAGE_REQUEUE_COUNT) {
           logger.warn(
-            `[worker] [${uploadId}/${batchId}] StorageError requeue limit reached (${count}), marking failed`,
+            `[worker] ${tag} StorageError requeue limit reached (${count}), marking failed`,
           )
         } else {
           await uploads.updateUploadStatus(job.data.uploadId, 'queued')
           await removeUploadJobFn(job.id!)
           const delay = await getNextUploadDelayFn(job.data.userid, job.data.rateLimit, redis)
           logger.info(
-            `[worker] [${uploadId}/${batchId}] requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${formatDelayMs(delay)})`,
+            `[worker] ${tag} requeuing after StorageError (attempt ${count + 1}/${MAX_STORAGE_REQUEUE_COUNT}, delay: ${formatDelayMs(delay)})`,
           )
           await enqueueUploadFn({ ...job.data, requeueCount: count + 1 }, delay)
           return
@@ -297,7 +288,7 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
     } catch (dbErr) {
       logger.error(
         { jobId: job.id, err: dbErr },
-        `[worker] [${uploadId}/${batchId}] failed to update db status after job failure`,
+        `[worker] ${tag} failed to update db status after job failure`,
       )
     }
   })

@@ -731,7 +731,7 @@ describe('MediaWikiClient.applySdc', () => {
     const apiRequestMock = mock(async () => ({}))
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
     ;(client as any).apiRequest = apiRequestMock
-    await client.applySdc('Photo.jpg', [{ mainsnak: {} }], null, 'summary')
+    await client.applySdc('Photo.jpg', [{ mainsnak: {} }], null, 'summary', '[1/1]')
     expect(apiRequestMock).toHaveBeenCalled()
   })
 
@@ -741,7 +741,9 @@ describe('MediaWikiClient.applySdc', () => {
     ;(client as any).getCsrfToken = mock(async () => 'token+\\')
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
     ;(client as any).apiRequest = mock(async () => ({ error: { info: 'SDC error' } }))
-    await expect(client.applySdc('Photo.jpg', null, null, 'summary')).rejects.toThrow('SDC error')
+    await expect(client.applySdc('Photo.jpg', null, null, 'summary', '[1/1]')).rejects.toThrow(
+      'SDC error',
+    )
   })
 
   it('retries with a fresh token when the wbeditentity request returns badtoken', async () => {
@@ -758,7 +760,7 @@ describe('MediaWikiClient.applySdc', () => {
       return {}
     })
 
-    await client.applySdc('Test.jpg', null, null, 'summary')
+    await client.applySdc('Test.jpg', null, null, 'summary', '[1/1]')
 
     expect(apiCall).toBe(2)
   })
@@ -870,7 +872,7 @@ describe('MediaWikiClient.nullEdit retry', () => {
         if (editAttempts <= 2) throw new Error('transient network error')
         return {}
       })
-      await expect(client.nullEdit('Photo.jpg')).resolves.toBeUndefined()
+      await expect(client.nullEdit('Photo.jpg', '[1/1]')).resolves.toBeUndefined()
       expect(editAttempts).toBe(3)
     } finally {
       globalThis.setTimeout = origSetTimeout
@@ -888,7 +890,7 @@ describe('MediaWikiClient.nullEdit retry', () => {
         if (params.action === 'query') return makeQueryResponse()
         throw new Error('persistent error')
       })
-      await expect(client.nullEdit('Photo.jpg')).rejects.toThrow('persistent error')
+      await expect(client.nullEdit('Photo.jpg', '[1/1]')).rejects.toThrow('persistent error')
     } finally {
       globalThis.setTimeout = origSetTimeout
     }
@@ -909,7 +911,7 @@ describe('MediaWikiClient.nullEdit retry', () => {
       return {}
     })
 
-    await client.nullEdit('Test.jpg')
+    await client.nullEdit('Test.jpg', '[1/1]')
 
     expect(apiCall).toBe(2)
   })
