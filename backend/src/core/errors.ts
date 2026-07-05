@@ -33,3 +33,10 @@ export class SourceCdnError extends Error {
     this.name = 'SourceCdnError'
   }
 }
+
+export class MediaWikiServerError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MediaWikiServerError'
+  }
+}

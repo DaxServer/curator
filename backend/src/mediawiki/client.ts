@@ -3,6 +3,7 @@ import type { DuplicateLink } from '@backend/core/errors'
 import {
   DuplicateUploadError,
   HashLockError,
+  MediaWikiServerError,
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
@@ -148,7 +149,11 @@ export class MediaWikiClient {
       },
       body: formData,
     })
-    if (!res.ok) throw new Error(`MediaWiki upload request failed: ${res.status}`)
+    if (!res.ok) {
+      if (res.status >= 500)
+        throw new MediaWikiServerError(`MediaWiki upload request failed: ${res.status}`)
+      throw new Error(`MediaWiki upload request failed: ${res.status}`)
+    }
     return res.json() as Promise<Record<string, unknown>>
   }
 

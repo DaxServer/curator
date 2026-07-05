@@ -2,6 +2,7 @@ import { makeRedisMock } from '@backend/__tests__/helpers'
 import {
   DuplicateUploadError,
   HashLockError,
+  MediaWikiServerError,
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
@@ -170,6 +171,21 @@ describe('MediaWikiClient.uploadFile error paths', () => {
       }
     })
     await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('throws MediaWikiServerError when the chunk upload endpoint returns 5xx', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+    let call = 0
+    globalThis.fetch = mock(async () => {
+      call++
+      if (call === 1) return new Response(Buffer.from('data'), { status: 200 })
+      return new Response('', { status: 503 })
+    }) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(MediaWikiServerError)
   })
 
   it('throws HashLockError when lock is already held', async () => {
