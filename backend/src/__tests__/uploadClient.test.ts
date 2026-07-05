@@ -342,6 +342,74 @@ describe('MediaWikiClient.uploadFile commit-time duplicate', () => {
   })
 })
 
+describe('MediaWikiClient.uploadFile CSRF retry', () => {
+  it('retries a chunk upload with a fresh token when it returns badtoken', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    const capturedTokens: string[] = []
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async (fd: FormData) => {
+      call++
+      capturedTokens.push(fd.get('token') as string)
+      if (call === 1) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      if (call === 2) return { upload: { filekey: 'stash-key', result: 'Success' } }
+      return {
+        upload: {
+          filekey: 'stash-key',
+          result: 'Success',
+          imageinfo: {
+            url: 'https://upload.wikimedia.org/wikipedia/commons/t/te/test.jpg',
+            descriptionurl: 'https://commons.wikimedia.org/wiki/File:test.jpg',
+          },
+        },
+      }
+    })
+
+    const url = await callUploadFile(client, redis)
+
+    expect(url).toBe('https://commons.wikimedia.org/wiki/File:test.jpg')
+    // chunk step: token-1 fails, retries with token-2; commit step carries token-2 forward
+    expect(capturedTokens).toEqual(['token-1', 'token-2', 'token-2'])
+  })
+
+  it('retries the commit request with a fresh token when it returns badtoken', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    const capturedTokens: string[] = []
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async (fd: FormData) => {
+      call++
+      capturedTokens.push(fd.get('token') as string)
+      if (call === 1) return { upload: { filekey: 'stash-key', result: 'Success' } }
+      if (call === 2) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      return {
+        upload: {
+          filekey: 'stash-key',
+          result: 'Success',
+          imageinfo: {
+            url: 'https://upload.wikimedia.org/wikipedia/commons/t/te/test.jpg',
+            descriptionurl: 'https://commons.wikimedia.org/wiki/File:test.jpg',
+          },
+        },
+      }
+    })
+
+    const url = await callUploadFile(client, redis)
+
+    expect(url).toBe('https://commons.wikimedia.org/wiki/File:test.jpg')
+    // chunk step succeeds with token-1; commit step fails once, retries with token-2
+    expect(capturedTokens).toEqual(['token-1', 'token-1', 'token-2'])
+  })
+})
+
 describe('MediaWikiClient.isCategoryDeleted', () => {
   it('returns true when logevents are present', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
@@ -467,6 +535,80 @@ describe('MediaWikiClient.createPage', () => {
     await expect(client.createPage('Category:Trees', 'text')).rejects.toThrow(
       'You do not have permission',
     )
+  })
+})
+
+describe('MediaWikiClient.createPage', () => {
+  it('retries with a fresh token when the edit request returns badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    let apiCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => {
+      apiCall++
+      if (apiCall === 1) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      return { edit: { title: 'Test page' } }
+    })
+
+    const title = await client.createPage('Test page', 'wikitext')
+
+    expect(apiCall).toBe(2)
+    expect(title).toBe('Test page')
+  })
+})
+
+describe('MediaWikiClient.applySdc', () => {
+  it('retries with a fresh token when the wbeditentity request returns badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    let apiCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => {
+      apiCall++
+      if (apiCall === 1) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      return {}
+    })
+
+    await client.applySdc('Test.jpg', null, null, 'summary')
+
+    expect(apiCall).toBe(2)
+  })
+})
+
+describe('MediaWikiClient.replaceCategoryInPage', () => {
+  it('retries with a fresh token when the edit request returns badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    let apiCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => {
+      apiCall++
+      if (apiCall === 1) {
+        return {
+          query: {
+            pages: {
+              '1': { revisions: [{ slots: { main: { content: '[[Category:Old]]' } } }] },
+            },
+          },
+        }
+      }
+      if (apiCall === 2) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      return {}
+    })
+
+    const replaced = await client.replaceCategoryInPage('File:Test.jpg', 'Old', 'New')
+
+    expect(apiCall).toBe(3)
+    expect(replaced).toBe(true)
   })
 })
 
@@ -623,6 +765,145 @@ describe('MediaWikiClient.nullEdit retry', () => {
     } finally {
       globalThis.setTimeout = origSetTimeout
     }
+  })
+})
+
+describe('MediaWikiClient.apiRequestWithTokenRetry', () => {
+  it('retries once with a fresh token when the response is badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    const capturedTokens: string[] = []
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(
+      async (_params: unknown, _method: string, postData: Record<string, string>) => {
+        capturedTokens.push(postData.token)
+        if (capturedTokens.length === 1) {
+          return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+        }
+        return { edit: { title: 'Test' } }
+      },
+    )
+
+    // biome-ignore lint/suspicious/noExplicitAny: calling private method for testing
+    const result = await (client as any).apiRequestWithTokenRetry(
+      { action: 'edit' },
+      (token: string) => ({ token, title: 'Test' }),
+    )
+
+    expect(capturedTokens).toEqual(['token-1', 'token-2'])
+    expect((result.edit as { title: string }).title).toBe('Test')
+  })
+
+  it('gives up after one retry and returns the error result when both attempts fail', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => `token-${tokenCall++}`)
+    let apiCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => {
+      apiCall++
+      return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+    })
+
+    // biome-ignore lint/suspicious/noExplicitAny: calling private method for testing
+    const result = await (client as any).apiRequestWithTokenRetry(
+      { action: 'edit' },
+      (token: string) => ({ token }),
+    )
+
+    expect(apiCall).toBe(2)
+    expect(tokenCall).toBe(2)
+    expect((result.error as { code: string }).code).toBe('badtoken')
+  })
+})
+
+describe('MediaWikiClient.nullEdit', () => {
+  it('retries with a fresh token when the edit request returns badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    let apiCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiRequest = mock(async () => {
+      apiCall++
+      if (apiCall === 1) {
+        return {
+          query: {
+            pages: { '1': { revisions: [{ slots: { main: { content: 'page content' } } }] } },
+          },
+        }
+      }
+      if (apiCall === 2) return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      return {}
+    })
+
+    await client.nullEdit('Test.jpg')
+
+    expect(apiCall).toBe(3)
+  })
+})
+
+describe('MediaWikiClient.apiUploadChunkWithTokenRetry', () => {
+  it('retries once with a fresh token when the response is badtoken', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    const tokens = ['token-1', 'token-2']
+    let tokenCall = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => tokens[tokenCall++])
+    const capturedTokens: string[] = []
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async (fd: FormData) => {
+      capturedTokens.push(fd.get('token') as string)
+      if (capturedTokens.length === 1) {
+        return { error: { code: 'badtoken', info: 'Invalid CSRF token.' } }
+      }
+      return { upload: { result: 'Success' } }
+    })
+    const buildFormData = (token: string) => {
+      const fd = new FormData()
+      fd.append('token', token)
+      return fd
+    }
+
+    // biome-ignore lint/suspicious/noExplicitAny: calling private method for testing
+    const { result, token } = await (client as any).apiUploadChunkWithTokenRetry(
+      buildFormData,
+      'token-0',
+    )
+
+    expect(capturedTokens).toEqual(['token-0', 'token-1'])
+    expect(token).toBe('token-1')
+    expect((result.upload as { result: string }).result).toBe('Success')
+  })
+
+  it('does not fetch a new token when the first response succeeds', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => {
+      throw new Error('should not be called')
+    })
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({ upload: { result: 'Success' } }))
+    const buildFormData = (token: string) => {
+      const fd = new FormData()
+      fd.append('token', token)
+      return fd
+    }
+
+    // biome-ignore lint/suspicious/noExplicitAny: calling private method for testing
+    const { result, token } = await (client as any).apiUploadChunkWithTokenRetry(
+      buildFormData,
+      'token-0',
+    )
+
+    expect(token).toBe('token-0')
+    expect((result.upload as { result: string }).result).toBe('Success')
   })
 })
 

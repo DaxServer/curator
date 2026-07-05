@@ -74,23 +74,9 @@ export class WikidataClient {
     await this.editItem(qid, claims, sitelinks)
   }
 
-  async editItem(
-    qid: string,
-    claims: unknown[] | null,
-    sitelinks: Record<string, unknown> | null,
-  ): Promise<void> {
-    const token = await this.getCsrfToken()
-    const payload: Record<string, unknown> = {}
-    if (claims !== null) payload.claims = claims
-    if (sitelinks !== null) payload.sitelinks = sitelinks
-
+  private async postToWikidata(postData: Record<string, string>): Promise<Record<string, unknown>> {
     const queryParams = { action: 'wbeditentity', format: 'json' }
     const url = `${WIKIDATA_API}?${new URLSearchParams(queryParams).toString()}`
-    const postData = {
-      id: qid,
-      data: JSON.stringify(payload),
-      token,
-    }
     const authHeader = buildAuthHeader(
       'POST',
       url,
@@ -110,5 +96,36 @@ export class WikidataClient {
       body,
     })
     if (!res.ok) throw new Error(`Wikidata editItem failed: ${res.status}`)
+    return res.json() as Promise<Record<string, unknown>>
+  }
+
+  private async editItemWithTokenRetry(
+    buildPostData: (token: string) => Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    let token = await this.getCsrfToken()
+    let result = await this.postToWikidata(buildPostData(token))
+    if ((result.error as Record<string, string> | undefined)?.code === 'badtoken') {
+      token = await this.getCsrfToken()
+      result = await this.postToWikidata(buildPostData(token))
+    }
+    return result
+  }
+
+  async editItem(
+    qid: string,
+    claims: unknown[] | null,
+    sitelinks: Record<string, unknown> | null,
+  ): Promise<void> {
+    const payload: Record<string, unknown> = {}
+    if (claims !== null) payload.claims = claims
+    if (sitelinks !== null) payload.sitelinks = sitelinks
+
+    const result = await this.editItemWithTokenRetry((token) => ({
+      id: qid,
+      data: JSON.stringify(payload),
+      token,
+    }))
+    if (result.error)
+      throw new Error((result.error as Record<string, string>).info ?? 'Wikidata editItem failed')
   }
 }
