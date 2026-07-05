@@ -8,6 +8,7 @@ import {
 } from '@backend/core/errors'
 import { elapsed, logger } from '@backend/core/logger'
 import { buildAuthHeader } from '@backend/core/oauthClient'
+import { withCsrfTokenRetry } from '@backend/mediawiki/tokenRetry'
 import type { Redis } from 'ioredis'
 import { createHash } from 'node:crypto'
 
@@ -62,27 +63,14 @@ export class MediaWikiClient {
       .csrftoken as string
   }
 
-  private async apiRequestWithTokenRetry(
-    params: Record<string, string>,
-    buildPostData: (token: string) => Record<string, string>,
-  ): Promise<Record<string, unknown>> {
-    let token = await this.getCsrfToken()
-    let result = await this.apiRequest(params, 'POST', buildPostData(token))
-    if ((result.error as Record<string, string> | undefined)?.code === 'badtoken') {
-      token = await this.getCsrfToken()
-      result = await this.apiRequest(params, 'POST', buildPostData(token))
-    }
-    return result
-  }
-
   async createPage(title: string, text: string): Promise<string> {
     const start = process.hrtime.bigint()
-    const result = await this.apiRequestWithTokenRetry({ action: 'edit' }, (token) => ({
-      title,
-      text,
-      createonly: '1',
-      token,
-    }))
+    const { result } = await withCsrfTokenRetry(
+      '[mw] createPage',
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest({ action: 'edit' }, 'POST', { title, text, createonly: '1', token }),
+    )
     if (result.error) {
       if ((result.error as Record<string, string>).code === 'articleexists') {
         logger.info(`[mw] page already exists: ${title} | ${elapsed(start)}`)
@@ -162,18 +150,6 @@ export class MediaWikiClient {
     })
     if (!res.ok) throw new Error(`MediaWiki upload request failed: ${res.status}`)
     return res.json() as Promise<Record<string, unknown>>
-  }
-
-  private async apiUploadChunkWithTokenRetry(
-    buildFormData: (token: string) => FormData,
-    token: string,
-  ): Promise<{ result: Record<string, unknown>; token: string }> {
-    let result = await this.apiUploadChunk(buildFormData(token))
-    if ((result.error as Record<string, string> | undefined)?.code === 'badtoken') {
-      token = await this.getCsrfToken()
-      result = await this.apiUploadChunk(buildFormData(token))
-    }
-    return { result, token }
   }
 
   async getUserRateLimits(): Promise<{
@@ -283,7 +259,12 @@ export class MediaWikiClient {
           return formData
         }
 
-        const chunkResponse = await this.apiUploadChunkWithTokenRetry(buildFormData, token)
+        const chunkResponse = await withCsrfTokenRetry(
+          `[mw] uploadFile chunk ${offset / CHUNK_SIZE + 1}/${totalChunks}`,
+          () => this.getCsrfToken(),
+          (t) => this.apiUploadChunk(buildFormData(t)),
+          token,
+        )
         token = chunkResponse.token
         const result = chunkResponse.result
         const errorObj = result.error as Record<string, string> | undefined
@@ -315,7 +296,12 @@ export class MediaWikiClient {
           return formData
         }
 
-        const commitResponse = await this.apiUploadChunkWithTokenRetry(buildFormData, token)
+        const commitResponse = await withCsrfTokenRetry(
+          `[mw] uploadFile commit (attempt ${attempt + 1})`,
+          () => this.getCsrfToken(),
+          (t) => this.apiUploadChunk(buildFormData(t)),
+          token,
+        )
         token = commitResponse.token
         const result = commitResponse.result
         const errorObj = result.error as Record<string, string> | undefined
@@ -379,9 +365,15 @@ export class MediaWikiClient {
     const payload: Record<string, unknown> = {}
     if (claims) payload.claims = claims
     if (labels) payload.labels = labels
-    const result = await this.apiRequestWithTokenRetry(
-      { action: 'wbeditentity', site: 'commonswiki', title: `File:${filename}` },
-      (token) => ({ data: JSON.stringify(payload), summary: editSummary, token }),
+    const { result } = await withCsrfTokenRetry(
+      `[mw] applySdc ${filename}`,
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest(
+          { action: 'wbeditentity', site: 'commonswiki', title: `File:${filename}` },
+          'POST',
+          { data: JSON.stringify(payload), summary: editSummary, token },
+        ),
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
@@ -405,13 +397,18 @@ export class MediaWikiClient {
         const slots = (revisions[0]?.slots as Record<string, unknown>) ?? {}
         const mainSlot = (slots.main as Record<string, unknown>) ?? {}
         const content = (mainSlot.content as string) ?? ''
-        const result = await this.apiRequestWithTokenRetry({ action: 'edit' }, (token) => ({
-          title: `File:${filename}`,
-          text: content,
-          summary: 'null edit',
-          bot: '0',
-          token,
-        }))
+        const { result } = await withCsrfTokenRetry(
+          `[mw] nullEdit ${filename}`,
+          () => this.getCsrfToken(),
+          (token) =>
+            this.apiRequest({ action: 'edit' }, 'POST', {
+              title: `File:${filename}`,
+              text: content,
+              summary: 'null edit',
+              bot: '0',
+              token,
+            }),
+        )
         if (result.error)
           throw new Error((result.error as Record<string, string>).info ?? 'null edit failed')
         logger.info(`[mw] null edit on ${filename} | ${elapsed(start)}`)
@@ -480,12 +477,17 @@ export class MediaWikiClient {
       (_match, alias) => `[[Category:${targetNormalized}${alias ?? ''}]]`,
     )
 
-    const editResult = await this.apiRequestWithTokenRetry({ action: 'edit' }, (token) => ({
-      title,
-      text: newText,
-      summary: `Recategorize: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
-      token,
-    }))
+    const { result: editResult } = await withCsrfTokenRetry(
+      `[mw] replaceCategoryInPage ${title}`,
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest({ action: 'edit' }, 'POST', {
+          title,
+          text: newText,
+          summary: `Recategorize: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
+          token,
+        }),
+    )
     if (editResult.error) return false
     logger.info(
       `[mw] recategorized ${title}: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]] | ${elapsed(start)}`,

@@ -1,6 +1,7 @@
 import { config } from '@backend/config'
 import { buildAuthHeader } from '@backend/core/oauthClient'
 import { WIKIDATA_PROPERTY } from '@backend/mediawiki/sdc'
+import { withCsrfTokenRetry } from '@backend/mediawiki/tokenRetry'
 
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php'
 
@@ -99,18 +100,6 @@ export class WikidataClient {
     return res.json() as Promise<Record<string, unknown>>
   }
 
-  private async editItemWithTokenRetry(
-    buildPostData: (token: string) => Record<string, string>,
-  ): Promise<Record<string, unknown>> {
-    let token = await this.getCsrfToken()
-    let result = await this.postToWikidata(buildPostData(token))
-    if ((result.error as Record<string, string> | undefined)?.code === 'badtoken') {
-      token = await this.getCsrfToken()
-      result = await this.postToWikidata(buildPostData(token))
-    }
-    return result
-  }
-
   async editItem(
     qid: string,
     claims: unknown[] | null,
@@ -120,11 +109,11 @@ export class WikidataClient {
     if (claims !== null) payload.claims = claims
     if (sitelinks !== null) payload.sitelinks = sitelinks
 
-    const result = await this.editItemWithTokenRetry((token) => ({
-      id: qid,
-      data: JSON.stringify(payload),
-      token,
-    }))
+    const { result } = await withCsrfTokenRetry(
+      `[wikidata] editItem ${qid}`,
+      () => this.getCsrfToken(),
+      (token) => this.postToWikidata({ id: qid, data: JSON.stringify(payload), token }),
+    )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'Wikidata editItem failed')
   }
