@@ -8,6 +8,7 @@ import {
 } from '@backend/core/errors'
 import { elapsed, logger } from '@backend/core/logger'
 import { buildAuthHeader } from '@backend/core/oauthClient'
+import { withCsrfTokenRetry } from '@backend/mediawiki/tokenRetry'
 import type { Redis } from 'ioredis'
 import { createHash } from 'node:crypto'
 
@@ -64,13 +65,12 @@ export class MediaWikiClient {
 
   async createPage(title: string, text: string): Promise<string> {
     const start = process.hrtime.bigint()
-    const token = await this.getCsrfToken()
-    const result = await this.apiRequest({ action: 'edit' }, 'POST', {
-      title,
-      text,
-      createonly: '1',
-      token,
-    })
+    const { result } = await withCsrfTokenRetry(
+      '[mw] createPage',
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest({ action: 'edit' }, 'POST', { title, text, createonly: '1', token }),
+    )
     if (result.error) {
       if ((result.error as Record<string, string>).code === 'articleexists') {
         logger.info(`[mw] page already exists: ${title} | ${elapsed(start)}`)
@@ -238,25 +238,35 @@ export class MediaWikiClient {
     if (!locked) throw new HashLockError(`Hash lock already held for ${sha1}`)
 
     try {
-      const token = await this.getCsrfToken()
+      let token = await this.getCsrfToken()
       const filesize = buffer.length
       let stashKey = ''
 
       for (let offset = 0; offset < filesize; offset += CHUNK_SIZE) {
         const chunk = buffer.subarray(offset, offset + CHUNK_SIZE)
-        const formData = new FormData()
-        formData.append('action', 'upload')
-        formData.append('stash', '1')
-        formData.append('offset', String(offset))
-        formData.append('filesize', String(filesize))
-        formData.append('filename', filename)
-        formData.append('text', wikitext)
-        formData.append('comment', editSummary)
-        formData.append('token', token)
-        if (stashKey) formData.append('filekey', stashKey)
-        formData.append('chunk', new Blob([chunk]), filename)
+        const buildFormData = (t: string) => {
+          const formData = new FormData()
+          formData.append('action', 'upload')
+          formData.append('stash', '1')
+          formData.append('offset', String(offset))
+          formData.append('filesize', String(filesize))
+          formData.append('filename', filename)
+          formData.append('text', wikitext)
+          formData.append('comment', editSummary)
+          formData.append('token', t)
+          if (stashKey) formData.append('filekey', stashKey)
+          formData.append('chunk', new Blob([chunk]), filename)
+          return formData
+        }
 
-        const result = await this.apiUploadChunk(formData)
+        const chunkResponse = await withCsrfTokenRetry(
+          `[mw] uploadFile chunk ${offset / CHUNK_SIZE + 1}/${totalChunks}`,
+          () => this.getCsrfToken(),
+          (t) => this.apiUploadChunk(buildFormData(t)),
+          token,
+        )
+        token = chunkResponse.token
+        const result = chunkResponse.result
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
           if (
@@ -275,15 +285,25 @@ export class MediaWikiClient {
       logger.info(`[mw] final commit for ${filename}`)
       let commitResult: Record<string, unknown> | null = null
       for (let attempt = 0; attempt <= STASH_RETRY_LIMIT; attempt++) {
-        const formData = new FormData()
-        formData.append('action', 'upload')
-        formData.append('filename', filename)
-        formData.append('comment', editSummary)
-        formData.append('text', wikitext)
-        formData.append('filekey', stashKey)
-        formData.append('token', token)
+        const buildFormData = (t: string) => {
+          const formData = new FormData()
+          formData.append('action', 'upload')
+          formData.append('filename', filename)
+          formData.append('comment', editSummary)
+          formData.append('text', wikitext)
+          formData.append('filekey', stashKey)
+          formData.append('token', t)
+          return formData
+        }
 
-        const result = await this.apiUploadChunk(formData)
+        const commitResponse = await withCsrfTokenRetry(
+          `[mw] uploadFile commit (attempt ${attempt + 1})`,
+          () => this.getCsrfToken(),
+          (t) => this.apiUploadChunk(buildFormData(t)),
+          token,
+        )
+        token = commitResponse.token
+        const result = commitResponse.result
         const errorObj = result.error as Record<string, string> | undefined
         if (errorObj) {
           if (errorObj.code === 'uploadstash-file-not-found' && attempt < STASH_RETRY_LIMIT) {
@@ -342,14 +362,18 @@ export class MediaWikiClient {
     editSummary: string,
   ): Promise<void> {
     const start = process.hrtime.bigint()
-    const token = await this.getCsrfToken()
     const payload: Record<string, unknown> = {}
     if (claims) payload.claims = claims
     if (labels) payload.labels = labels
-    const result = await this.apiRequest(
-      { action: 'wbeditentity', site: 'commonswiki', title: `File:${filename}` },
-      'POST',
-      { data: JSON.stringify(payload), summary: editSummary, token },
+    const { result } = await withCsrfTokenRetry(
+      `[mw] applySdc ${filename}`,
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest(
+          { action: 'wbeditentity', site: 'commonswiki', title: `File:${filename}` },
+          'POST',
+          { data: JSON.stringify(payload), summary: editSummary, token },
+        ),
     )
     if (result.error)
       throw new Error((result.error as Record<string, string>).info ?? 'wbeditentity failed')
@@ -373,14 +397,20 @@ export class MediaWikiClient {
         const slots = (revisions[0]?.slots as Record<string, unknown>) ?? {}
         const mainSlot = (slots.main as Record<string, unknown>) ?? {}
         const content = (mainSlot.content as string) ?? ''
-        const token = await this.getCsrfToken()
-        await this.apiRequest({ action: 'edit' }, 'POST', {
-          title: `File:${filename}`,
-          text: content,
-          summary: 'null edit',
-          bot: '0',
-          token,
-        })
+        const { result } = await withCsrfTokenRetry(
+          `[mw] nullEdit ${filename}`,
+          () => this.getCsrfToken(),
+          (token) =>
+            this.apiRequest({ action: 'edit' }, 'POST', {
+              title: `File:${filename}`,
+              text: content,
+              summary: 'null edit',
+              bot: '0',
+              token,
+            }),
+        )
+        if (result.error)
+          throw new Error((result.error as Record<string, string>).info ?? 'null edit failed')
         logger.info(`[mw] null edit on ${filename} | ${elapsed(start)}`)
         return
       } catch (err) {
@@ -447,13 +477,17 @@ export class MediaWikiClient {
       (_match, alias) => `[[Category:${targetNormalized}${alias ?? ''}]]`,
     )
 
-    const token = await this.getCsrfToken()
-    const editResult = await this.apiRequest({ action: 'edit' }, 'POST', {
-      title,
-      text: newText,
-      summary: `Recategorize: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
-      token,
-    })
+    const { result: editResult } = await withCsrfTokenRetry(
+      `[mw] replaceCategoryInPage ${title}`,
+      () => this.getCsrfToken(),
+      (token) =>
+        this.apiRequest({ action: 'edit' }, 'POST', {
+          title,
+          text: newText,
+          summary: `Recategorize: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]]`,
+          token,
+        }),
+    )
     if (editResult.error) return false
     logger.info(
       `[mw] recategorized ${title}: [[Category:${sourceNormalized}]] → [[Category:${targetNormalized}]] | ${elapsed(start)}`,
