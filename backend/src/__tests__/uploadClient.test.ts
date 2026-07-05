@@ -188,6 +188,30 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(MediaWikiServerError)
   })
 
+  it('throws a plain (non-retryable) Error, not MediaWikiServerError, when the final commit request returns 5xx', async () => {
+    const client = new MediaWikiClient(['key', 'secret'])
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).getCsrfToken = mock(async () => 'test-token+\\')
+    client.findDuplicates = mock(async () => [])
+    let call = 0
+    globalThis.fetch = mock(async () => {
+      call++
+      if (call === 1) return new Response(Buffer.from('data'), { status: 200 }) // image download
+      if (call === 2)
+        return new Response(JSON.stringify({ upload: { filekey: 'stash-key' } }), { status: 200 }) // chunk stash succeeds
+      return new Response('', { status: 503 }) // final commit fails
+    }) as unknown as typeof fetch
+    const { redis } = makeRedisMock()
+    let caught: unknown
+    try {
+      await callUploadFile(client, redis)
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught).not.toBeInstanceOf(MediaWikiServerError)
+  })
+
   it('throws HashLockError when lock is already held', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     client.findDuplicates = mock(async () => [])
