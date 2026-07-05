@@ -32,6 +32,10 @@ export function elapsed(start: bigint): string {
   return formatDuration(Number(process.hrtime.bigint() - start))
 }
 
+export function idTag(uploadId: number, batchId: number): string {
+  return `[${uploadId}/${batchId}]`
+}
+
 const requestTimings = new WeakMap<Request, bigint>()
 
 export const elysiaLogger = new Elysia({ name: 'elysia-logger' })

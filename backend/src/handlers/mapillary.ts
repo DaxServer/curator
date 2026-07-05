@@ -108,7 +108,7 @@ async function getSequenceIds(sequenceId: string): Promise<string[]> {
   return ids
 }
 
-async function fetchImagesByIds(imageIds: string[]): Promise<MapillaryImage[]> {
+async function fetchImagesByIds(imageIds: string[], tag = ''): Promise<MapillaryImage[]> {
   if (imageIds.length === 0) return []
 
   const url = new URL('https://graph.mapillary.com')
@@ -123,7 +123,8 @@ async function fetchImagesByIds(imageIds: string[]): Promise<MapillaryImage[]> {
 
   const data = (await res.json()) as Record<string, MapillaryImage>
   const images = Object.values(data)
-  logger.debug(`[mapillary] fetched ${images.length}/${imageIds.length} images by ids`)
+  const prefix = tag ? `${tag} ` : ''
+  logger.debug(`[mapillary] ${prefix}fetched ${images.length}/${imageIds.length} images by ids`)
   return images
 }
 
@@ -249,8 +250,8 @@ export class MapillaryHandler {
     return getSequenceIds(input)
   }
 
-  async fetchImagesBatch(imageIds: string[], _input: string): Promise<MediaImage[]> {
-    const raw = await fetchImagesByIds(imageIds)
+  async fetchImagesBatch(imageIds: string[], _input: string, tag = ''): Promise<MediaImage[]> {
+    const raw = await fetchImagesByIds(imageIds, tag)
     return raw.map(fromMapillary).filter((i): i is MediaImage => i !== null)
   }
 

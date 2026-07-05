@@ -1,5 +1,5 @@
 import { config } from '@backend/config'
-import { logger } from '@backend/core/logger'
+import { idTag, logger } from '@backend/core/logger'
 import type { RateLimitInfo } from '@backend/core/rateLimiter'
 import { Queue } from 'bullmq'
 
@@ -42,7 +42,7 @@ export async function enqueueUpload(data: UploadJobData, delayMs: number): Promi
     removeOnFail: { age: 86400 * 7 },
   })
   logger.info(
-    `[worker] upload ${data.uploadId} enqueued (job: ${job.id}, batch: ${data.batchId}, delay: ${formatDelayMs(delayMs)})`,
+    `[worker] ${idTag(data.uploadId, data.batchId)} enqueued (job: ${job.id}, delay: ${formatDelayMs(delayMs)})`,
   )
   return job.id!
 }
@@ -51,6 +51,8 @@ export async function removeUploadJob(jobId: string): Promise<void> {
   const job = await getUploadQueue().getJob(jobId)
   if (job) {
     await job.remove()
-    logger.info(`[worker] job ${jobId} removed from queue`)
+    logger.info(
+      `[worker] ${idTag(job.data.uploadId, job.data.batchId)} job ${jobId} removed from queue`,
+    )
   }
 }
