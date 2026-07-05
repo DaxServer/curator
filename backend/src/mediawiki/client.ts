@@ -286,10 +286,16 @@ export class MediaWikiClient {
         if (errorObj) {
           if (
             errorObj.code === 'uploadstash-exception' ||
-            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION
+            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION ||
+            errorObj.code === 'stashfilestorage' ||
+            errorObj.code === 'backend-fail-internal'
           )
-            throw new StorageError(errorObj.info ?? 'Stash exception')
-          throw new Error(errorObj.info ?? 'Upload chunk failed')
+            throw Object.assign(new StorageError(errorObj.info ?? 'Stash exception'), {
+              code: errorObj.code,
+            })
+          throw Object.assign(new Error(errorObj.info ?? 'Upload chunk failed'), {
+            code: errorObj.code,
+          })
         }
         const upload = result.upload as Record<string, unknown>
         stashKey = upload.filekey as string
@@ -330,10 +336,16 @@ export class MediaWikiClient {
           }
           if (
             errorObj.code === 'uploadstash-exception' ||
-            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION
+            errorObj.code === UPLOAD_CHUNK_FILE_EXCEPTION ||
+            errorObj.code === 'stashfilestorage' ||
+            errorObj.code === 'backend-fail-internal'
           )
-            throw new StorageError(errorObj.info ?? 'Stash exception')
-          throw new Error(errorObj.info ?? 'Upload commit failed')
+            throw Object.assign(new StorageError(errorObj.info ?? 'Stash exception'), {
+              code: errorObj.code,
+            })
+          throw Object.assign(new Error(errorObj.info ?? 'Upload commit failed'), {
+            code: errorObj.code,
+          })
         }
         const upload = result.upload as Record<string, unknown>
         if (upload.result === 'Success') {

@@ -173,6 +173,99 @@ describe('MediaWikiClient.uploadFile error paths', () => {
     await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
   })
 
+  it('throws StorageError when chunk upload returns stashfilestorage (storage backend failure)', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: {
+        code: 'stashfilestorage',
+        info: 'An unknown error occurred in storage backend "local-swift-codfw".',
+      },
+    }))
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('throws StorageError when final commit returns stashfilestorage (storage backend failure)', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => {
+      if (++call === 1) return { upload: { filekey: 'stash-key', result: 'Continue' } }
+      return {
+        error: {
+          code: 'stashfilestorage',
+          info: 'An unknown error occurred in storage backend "local-swift-codfw".',
+        },
+      }
+    })
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('throws StorageError when chunk upload returns backend-fail-internal (publish-time storage backend failure)', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: {
+        code: 'backend-fail-internal',
+        info: 'An unknown error occurred in storage backend "local-swift-codfw".',
+      },
+    }))
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('throws StorageError when final commit returns backend-fail-internal (publish-time storage backend failure)', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => {
+      if (++call === 1) return { upload: { filekey: 'stash-key', result: 'Continue' } }
+      return {
+        error: {
+          code: 'backend-fail-internal',
+          info: 'An unknown error occurred in storage backend "local-swift-codfw".',
+        },
+      }
+    })
+    await expect(callUploadFile(client, redis)).rejects.toBeInstanceOf(StorageError)
+  })
+
+  it('preserves the MediaWiki error code on the thrown StorageError (chunk phase)', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: {
+        code: 'stashfilestorage',
+        info: 'An unknown error occurred in storage backend "local-swift-codfw".',
+      },
+    }))
+    const caught = await callUploadFile(client, redis).catch((e) => e)
+    expect(caught.code).toBe('stashfilestorage')
+  })
+
+  it('preserves the MediaWiki error code on the thrown error for an unmapped chunk error code', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => ({
+      error: { code: 'some-unmapped-error', info: 'Something else went wrong.' },
+    }))
+    const caught = await callUploadFile(client, redis).catch((e) => e)
+    expect(caught).not.toBeInstanceOf(StorageError)
+    expect(caught.code).toBe('some-unmapped-error')
+  })
+
+  it('preserves the MediaWiki error code on the thrown error for an unmapped commit error code', async () => {
+    const { client, redis } = makeChunkUploadClient()
+    let call = 0
+    // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
+    ;(client as any).apiUploadChunk = mock(async () => {
+      if (++call === 1) return { upload: { filekey: 'stash-key', result: 'Continue' } }
+      return { error: { code: 'some-unmapped-error', info: 'Something else went wrong.' } }
+    })
+    const caught = await callUploadFile(client, redis).catch((e) => e)
+    expect(caught).not.toBeInstanceOf(StorageError)
+    expect(caught.code).toBe('some-unmapped-error')
+  })
+
   it('throws MediaWikiServerError when the chunk upload endpoint returns 5xx', async () => {
     const client = new MediaWikiClient(['key', 'secret'])
     // biome-ignore lint/suspicious/noExplicitAny: overriding private methods for testing
