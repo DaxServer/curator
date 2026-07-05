@@ -3,6 +3,7 @@ import { decryptAccessToken } from '@backend/core/crypto'
 import {
   DuplicateUploadError,
   HashLockError,
+  MediaWikiServerError,
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
@@ -230,7 +231,8 @@ export function createUploadWorker(redis: Redis, deps?: WorkerDeps): Worker<Uplo
         if (
           err instanceof HashLockError ||
           err instanceof StorageError ||
-          err instanceof SourceCdnError
+          err instanceof SourceCdnError ||
+          err instanceof MediaWikiServerError
         ) {
           throw err
         }

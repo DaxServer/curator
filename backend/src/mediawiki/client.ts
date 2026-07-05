@@ -3,6 +3,7 @@ import type { DuplicateLink } from '@backend/core/errors'
 import {
   DuplicateUploadError,
   HashLockError,
+  MediaWikiServerError,
   SourceCdnError,
   StorageError,
 } from '@backend/core/errors'
@@ -130,7 +131,17 @@ export class MediaWikiClient {
     return titles
   }
 
-  private async apiUploadChunk(formData: FormData): Promise<Record<string, unknown>> {
+  // isFinalCommit distinguishes the terminal commit request from per-chunk stash
+  // uploads. A chunk-phase 5xx is safe to retry from scratch (the stash isn't a
+  // public File page yet). A commit-phase 5xx is ambiguous — the page may have
+  // been created server-side despite the failed response — so retrying the whole
+  // uploadFile would re-run findDuplicates and could misclassify a real success
+  // as a duplicate. Only chunk-phase 5xx is surfaced as the retryable
+  // MediaWikiServerError; commit-phase 5xx stays a terminal Error.
+  private async apiUploadChunk(
+    formData: FormData,
+    isFinalCommit = false,
+  ): Promise<Record<string, unknown>> {
     const baseParams = { format: 'json', formatversion: '2' }
     const url = `${config.wikimediaUrls.baseUrl}?${new URLSearchParams(baseParams).toString()}`
     const authHeader = buildAuthHeader(
@@ -148,7 +159,11 @@ export class MediaWikiClient {
       },
       body: formData,
     })
-    if (!res.ok) throw new Error(`MediaWiki upload request failed: ${res.status}`)
+    if (!res.ok) {
+      if (res.status >= 500 && !isFinalCommit)
+        throw new MediaWikiServerError(`MediaWiki upload request failed: ${res.status}`)
+      throw new Error(`MediaWiki upload request failed: ${res.status}`)
+    }
     return res.json() as Promise<Record<string, unknown>>
   }
 
@@ -299,7 +314,7 @@ export class MediaWikiClient {
         const commitResponse = await withCsrfTokenRetry(
           `[mw] uploadFile commit (attempt ${attempt + 1})`,
           () => this.getCsrfToken(),
-          (t) => this.apiUploadChunk(buildFormData(t)),
+          (t) => this.apiUploadChunk(buildFormData(t), true),
           token,
         )
         token = commitResponse.token

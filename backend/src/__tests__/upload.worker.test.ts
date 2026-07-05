@@ -1,4 +1,9 @@
-import { HashLockError, SourceCdnError, StorageError } from '@backend/core/errors'
+import {
+  HashLockError,
+  MediaWikiServerError,
+  SourceCdnError,
+  StorageError,
+} from '@backend/core/errors'
 import type { UploadService } from '@backend/db/dal/uploads'
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import type { Redis } from 'ioredis'
@@ -86,6 +91,7 @@ describe('upload worker — retryable errors escape the processor without a DB u
     ['HashLockError', new HashLockError('lock already held')],
     ['StorageError', new StorageError('storage write failed')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
+    ['MediaWikiServerError', new MediaWikiServerError('MediaWiki upload request failed: 503')],
   ])('%s propagates out of the processor and leaves the DB untouched', async (_name, error) => {
     // Force the error to escape early (simulates it bubbling out of the inner try block).
     mockGetById.mockImplementation(async () => {
@@ -112,6 +118,7 @@ describe('upload worker — failed handler resets status to queued on intermedia
   it.each([
     ['HashLockError', new HashLockError('lock already held')],
     ['SourceCdnError', new SourceCdnError('cdn network error (ECONNRESET)')],
+    ['MediaWikiServerError', new MediaWikiServerError('MediaWiki upload request failed: 503')],
   ])('%s: resets status to queued when BullMQ will retry', async (_name, error) => {
     const failedHandler = capturedHandlers.get('failed')
     expect(failedHandler).toBeDefined()
@@ -141,6 +148,7 @@ describe('upload worker — permanent BullMQ failure marks upload as failed in D
   it.each([
     ['HashLockError', new HashLockError('lock already held')],
     ['SourceCdnError', new SourceCdnError('cdn returned 503')],
+    ['MediaWikiServerError', new MediaWikiServerError('MediaWiki upload request failed: 503')],
   ])('%s: permanently failed job updates DB status to "failed"', async (_name, error) => {
     const failedHandler = capturedHandlers.get('failed')
     expect(failedHandler).toBeDefined()
